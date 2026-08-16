@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Commute Planner</title>
+<meta name="description" content="Plan your drive, parking, and train timing in one place. Leave on time with live TfL data where available, route estimates, and arrival alerts.">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#0B0D10">
+<meta name="application-name" content="Commute Planner">
+<meta name="apple-mobile-web-app-title" content="Commute Planner">
+<link rel="canonical" href="https://commute-planner.pages.dev/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Commute Planner">
+<meta property="og:description" content="Leave on time, every time. Plan drive, parking, and train timing with live TfL data where available.">
+<meta property="og:url" content="https://commute-planner.pages.dev/">
+<meta property="og:site_name" content="Commute Planner">
+<meta property="og:image" content="https://commute-planner.pages.dev/og-image.png">
+<meta property="og:image:alt" content="Commute Planner preview showing drive, parking, and train timing">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Commute Planner">
+<meta name="twitter:description" content="Leave on time, every time. Plan drive, parking, and train timing with live TfL data where available.">
+<meta name="twitter:image" content="https://commute-planner.pages.dev/og-image.png">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Commute Planner",
+  "url": "https://commute-planner.pages.dev/",
+  "description": "Plan your drive, parking, and train timing in one place. Leave on time with live TfL data where available, route estimates, and arrival alerts.",
+  "applicationCategory": "TravelApplication",
+  "operatingSystem": "Web",
+  "inLanguage": "en-GB"
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0D10; --panel:#14171C; --panel-raised:#1B1F26; --panel-sunken:#0E1013;
+    color-scheme:dark;
+    --amber:#FFB020; --amber-dim:#7A5A1E;
+    --text:#EDEEF2; --text-dim:#8B95A5; --text-faint:#5A6272;
+    --district:#00782A; --ok:#4FBF7A; --warn:#F2A93B; --alert:#E3512F;
+    --hairline:#262B33;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;}
+  body{min-height:100vh; display:flex; justify-content:center; padding:16px 12px 50px;
+    background:
+      radial-gradient(ellipse at top, rgba(255,176,32,0.10), transparent 55%),
+      radial-gradient(circle at 18% 12%, rgba(79,191,122,0.08), transparent 25%),
+      linear-gradient(180deg, #090B0E 0%, #0B0D10 40%, #090A0C 100%);
+  }
+  .board{width:100%; max-width:480px;}
+  button, input{font-family:inherit;}
+
+  /* ---------- Top bar: title + route in one row ---------- */
+  .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; padding:0 2px;}
+  .brand{font-family:'Oswald',sans-serif; font-size:15px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--amber);}
+  .route-pill{
+    display:flex; align-items:center; gap:7px; background:var(--panel); border:1px solid var(--hairline);
+    border-radius:20px; padding:7px 12px 7px 10px; cursor:pointer; font-family:'Oswald',sans-serif;
+    font-size:12.5px; font-weight:500; letter-spacing:.02em; text-transform:uppercase; color:var(--text);
+  }
+  .route-pill:active{border-color:var(--amber-dim);}
+  .route-pill .dot{width:6px; height:6px; border-radius:50%; background:var(--district); flex:none;}
+  .route-pill .route-icon{display:flex; align-items:center; justify-content:center; width:16px; height:16px; color:var(--amber); flex:none;}
+  .route-pill .route-icon svg{width:16px; height:16px;}
+  .route-pill .kind{color:var(--text-dim); letter-spacing:.08em; font-size:10px;}
+  .route-pill .chev{color:var(--text-faint); font-size:10px; margin-left:2px;}
+
+  .search-panel{display:none; background:var(--panel); border:1px solid var(--hairline); border-radius:14px; padding:16px; margin-bottom:14px;}
+  .search-panel.open{display:block;}
+  .search-head{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px;}
+  .search-title{font-family:'Oswald',sans-serif; font-size:12.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--text); font-weight:600;}
+  .search-head-sub{font-size:11.5px; color:var(--text-faint); margin-top:4px; line-height:1.4;}
+  .edit-btn{
+    flex:none; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--amber);
+    border-radius:10px; padding:9px 12px; font-size:11.5px; font-weight:600; letter-spacing:.04em;
+    text-transform:uppercase; cursor:pointer;
+  }
+  .edit-btn:active{border-color:var(--amber-dim);}
+  .search-row{display:flex; flex-direction:column; gap:8px; margin-bottom:12px;}
+  .search-row:last-of-type{margin-bottom:0;}
+  .search-row label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim);}
+  .search-row input{background:var(--panel-raised); border:1px solid var(--hairline); border-radius:9px; color:var(--text); padding:12px; font-size:16px;}
+  .search-row input:focus{outline:none; border-color:var(--amber-dim);}
+  .search-row input[readonly]{
+    background:var(--panel-sunken);
+    color:var(--text);
+    cursor:default;
+    opacity:.96;
+  }
+  .seg{display:flex; background:var(--panel-raised); border:1px solid var(--hairline); border-radius:10px; overflow:hidden;}
+  .seg-btn{
+    flex:1; border:none; background:transparent; color:var(--text-dim); padding:11px 0; cursor:pointer;
+    font-size:11.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
+  }
+  .seg-btn.active{background:rgba(255,176,32,0.12); color:var(--amber);}
+  .results{display:flex; flex-direction:column; gap:3px; max-height:160px; overflow-y:auto;}
+  .result-item{padding:11px 12px; border-radius:8px; font-size:14.5px; cursor:pointer; color:var(--text-dim);}
+  .result-item:active{background:var(--panel-raised); color:var(--text);}
+  .search-help{margin-top:10px; font-size:11.5px; color:var(--text-faint); line-height:1.5;}
+  .search-help b{color:var(--text);}
+
+  /* ---------- HERO ---------- */
+  .hero{
+    background:linear-gradient(180deg, var(--panel-raised), var(--panel));
+    border:1px solid var(--hairline); border-radius:18px; padding:26px 18px 20px; text-align:center; margin-bottom:12px;
+  }
+  .hero-label{font-family:'Oswald',sans-serif; font-size:11.5px; letter-spacing:.18em; color:var(--text-dim); text-transform:uppercase; margin-bottom:14px;}
+  .flap-row{display:flex; justify-content:center; gap:4px; margin-bottom:14px;}
+  .flap{width:46px; height:64px; background:var(--panel-sunken); border:1px solid #2C323C; border-radius:7px;
+    display:flex; align-items:center; justify-content:center; font-family:'Space Mono',monospace; font-weight:700;
+    font-size:33px; color:var(--amber); position:relative; overflow:hidden; box-shadow:inset 0 -2px 6px rgba(0,0,0,0.5);}
+  .flap::after{content:''; position:absolute; top:50%; left:0; right:0; height:1px; background:#000; opacity:.6;}
+  .flap.colon{width:14px; background:transparent; border:none; box-shadow:none; font-size:28px;}
+  .flap.flipping{animation:flip .35s ease;}
+  .flap.pending{color:var(--text-faint);}
+  @keyframes flip{0%{transform:rotateX(0deg);filter:brightness(1);}50%{transform:rotateX(-90deg);filter:brightness(1.6);}100%{transform:rotateX(0deg);filter:brightness(1);}}
+
+  .status-pill{
+    display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border-radius:20px;
+    font-size:13px; font-weight:600; margin-bottom:12px;
+  }
+  .status-pill .pdot{width:7px; height:7px; border-radius:50%;}
+  .status-pill.ok{background:rgba(79,191,122,0.14); color:var(--ok);}
+  .status-pill.ok .pdot{background:var(--ok);}
+  .status-pill.warn{background:rgba(242,169,59,0.14); color:var(--warn);}
+  .status-pill.warn .pdot{background:var(--warn);}
+  .status-pill.alert{background:rgba(227,81,47,0.14); color:var(--alert);}
+  .status-pill.alert .pdot{background:var(--alert);}
+
+  .hero-sub{font-size:12.5px; color:var(--text-dim); line-height:1.5;}
+  .hero-sub b{color:var(--text);}
+
+  /* ---------- Assumptions chip row + expandable panel ---------- */
+  .chip-row{display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:16px;}
+  .chip{
+    background:var(--panel-sunken); border:1px solid var(--hairline); border-radius:16px; padding:6px 11px;
+    font-size:11.5px; color:var(--text-dim); font-family:'Space Mono',monospace; cursor:pointer;
+  }
+  .chip:active{border-color:var(--amber-dim);}
+  .chip b{color:var(--text); font-weight:600;}
+
+  .panel{background:var(--panel); border:1px solid var(--hairline); border-radius:16px; margin-bottom:12px; overflow:hidden;}
+  .panel-header{
+    display:flex; align-items:center; justify-content:space-between; padding:16px 18px; cursor:pointer;
+  }
+  .panel-header h2{font-family:'Oswald',sans-serif; font-size:12.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--text); margin:0; font-weight:600;}
+  .panel-header .chev{color:var(--text-faint); font-size:12px; transition:transform .2s ease;}
+  .panel.open .panel-header .chev{transform:rotate(180deg);}
+  .panel-body{display:none; padding:0 18px 18px;}
+  .panel.open .panel-body{display:block;}
+
+  /* ---------- Field rows (steppers) ---------- */
+  .field-row{display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-top:1px solid var(--hairline); gap:10px;}
+  .field-row:first-child{border-top:none;}
+  .field-label{font-size:14.5px; color:var(--text); font-weight:500;}
+  .field-sub{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+  .stepper-wrap{display:flex; align-items:center; gap:8px; flex:none;}
+  .mode-btn{
+    border:1px solid var(--hairline); background:var(--panel-raised); color:var(--amber);
+    border-radius:10px; padding:10px 12px; font-size:11px; font-weight:600; letter-spacing:.04em;
+    text-transform:uppercase; cursor:pointer; flex:none;
+  }
+  .mode-btn:active{border-color:var(--amber-dim);}
+  .stepper{display:flex; align-items:center; background:var(--panel-raised); border:1px solid var(--hairline); border-radius:10px; overflow:hidden; flex:none;}
+  .stepper button{width:36px; height:36px; border:none; background:transparent; color:var(--amber); font-size:19px; cursor:pointer; line-height:1;}
+  .stepper button:active{background:rgba(255,176,32,0.14);}
+  .stepper input{
+    width:48px; text-align:center; font-family:'Space Mono',monospace; font-size:15px; color:var(--text);
+    background:transparent; border:none; padding:0; -moz-appearance:textfield;
+  }
+  .stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button{-webkit-appearance:none; margin:0;}
+  .stepper input:focus{outline:none;}
+  .stepper input[readonly]{color:var(--amber); cursor:default;}
+  .time-input{
+    background:var(--panel-raised); border:1px solid var(--hairline); border-radius:10px;
+    color:var(--amber); font-family:'Space Mono',monospace; font-size:16px; padding:9px 11px; flex:none;
+  }
+  .time-input:focus{outline:none; border-color:var(--amber-dim);}
+  .time-input.parking-input{
+    border-color:rgba(255,176,32,0.55);
+    box-shadow:0 0 0 1px rgba(255,176,32,0.08), inset 0 0 0 1px rgba(255,176,32,0.04);
+    background:linear-gradient(180deg, rgba(255,176,32,0.08), rgba(20,23,28,1));
+    color:var(--amber);
+  }
+  .time-input.parking-input::placeholder{color:rgba(255,176,32,0.56);}
+  .time-input.parking-input:focus{
+    border-color:var(--amber);
+    box-shadow:0 0 0 3px rgba(255,176,32,0.12);
+  }
+
+  /* ---------- Timeline ---------- */
+  .timeline-wrap{padding-top:2px;}
+  .timeline-track{display:flex; align-items:flex-start; justify-content:space-between; position:relative; padding:6px 2px 0;}
+  .timeline-track::before{content:''; position:absolute; top:23px; left:20px; right:20px; height:2px; background:linear-gradient(90deg, var(--amber-dim), var(--district));}
+  .t-stop{display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; position:relative; z-index:1;}
+  .t-icon{width:36px; height:36px; border-radius:50%; background:var(--panel-raised); border:1.5px solid var(--hairline); display:flex; align-items:center; justify-content:center; color:var(--amber);}
+  .t-icon svg{width:18px; height:18px;}
+  .t-time{font-family:'Space Mono',monospace; font-size:11px; color:var(--text);}
+  .t-label{font-size:9px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.03em; text-align:center; max-width:58px;}
+
+  /* ---------- Manifest ---------- */
+  .m-row{display:flex; gap:14px; padding:10px 0; border-top:1px solid var(--hairline); align-items:flex-start; text-align:left;}
+  .m-row:first-child{border-top:none;}
+  .m-time{font-family:'Space Mono',monospace; font-size:13.5px; color:var(--amber); flex:none; width:50px; padding-top:1px;}
+  .m-text{font-size:13px; color:var(--text);}
+  .m-text .m-note{display:block; font-size:11px; color:var(--text-dim); margin-top:1px;}
+  .m-tag{display:inline-block; font-size:9px; text-transform:uppercase; letter-spacing:.05em; padding:2px 6px; border-radius:3px; margin-left:6px; vertical-align:middle;}
+  .m-tag.live{background:rgba(0,120,42,0.25); color:var(--ok);}
+  .m-tag.est{background:rgba(227,81,47,0.2); color:#F08064;}
+
+  .fetch-note{font-size:11.5px; color:var(--text-dim); text-align:center; margin:2px 0 12px; line-height:1.5;}
+  .fetch-note.error{color:#F08064;}
+
+  /* ---------- Alerts ---------- */
+  .alert-row{display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-top:1px solid var(--hairline); gap:12px;}
+  .alert-row:first-child{border-top:none;}
+  .alert-info{display:flex; align-items:center; gap:11px;}
+  .alert-icon{width:38px; height:38px; border-radius:10px; background:var(--panel-raised); display:flex; align-items:center; justify-content:center; color:var(--amber); flex:none;}
+  .alert-icon svg{width:19px; height:19px;}
+  .alert-name{font-size:14.5px; font-weight:500; color:var(--text);}
+  .alert-status{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+  .alert-status.watching{color:var(--ok);}
+  .alert-status.arrived{color:var(--amber);}
+  .alert-status.error{color:#F08064;}
+
+  .toggle{position:relative; width:48px; height:28px; flex:none;}
+  .toggle input{opacity:0; width:0; height:0;}
+  .toggle .slider{position:absolute; inset:0; background:var(--panel-raised); border:1px solid var(--hairline); border-radius:28px; cursor:pointer; transition:background .2s ease;}
+  .toggle .slider::before{content:''; position:absolute; width:22px; height:22px; left:2px; top:2px; background:var(--text-dim); border-radius:50%; transition:transform .2s ease, background .2s ease;}
+  .toggle input:checked + .slider{background:rgba(0,120,42,0.35); border-color:var(--district);}
+  .toggle input:checked + .slider::before{transform:translateX(20px); background:var(--ok);}
+
+  .test-sound-btn{
+    width:100%; margin-top:6px; background:var(--panel-raised); color:var(--text); border:1px solid var(--hairline);
+    border-radius:10px; padding:12px; font-weight:500; font-size:13.5px; cursor:pointer;
+  }
+  .test-sound-btn:active{border-color:var(--amber-dim);}
+
+  .announce-row{display:flex; align-items:center; justify-content:space-between; padding:13px 0; border-top:1px solid var(--hairline); gap:12px;}
+  .announce-row:first-child{border-top:none;}
+  .announce-meta{display:flex; align-items:center; gap:11px;}
+  .announce-name{font-size:14.5px; font-weight:500; color:var(--text);}
+  .announce-status{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+  .announce-status.on{color:var(--ok);}
+
+  .info-link{font-size:11.5px; color:var(--text-faint); text-align:center; margin-top:12px; cursor:pointer; text-decoration:underline; text-underline-offset:2px;}
+  .privacy-note{display:none; font-size:11px; color:var(--text-dim); line-height:1.6; margin-top:10px; padding-top:12px; border-top:1px solid var(--hairline);}
+  .privacy-note.open{display:block;}
+  .privacy-note b{color:var(--text);}
+
+  /* ---------- Primary CTA (compact, only needed for manual recalc) ---------- */
+  .recalc-btn{
+    width:100%; background:transparent; color:var(--amber); border:1px dashed var(--amber-dim); border-radius:10px;
+    padding:11px; font-size:12.5px; font-weight:600; letter-spacing:.03em; cursor:pointer; margin-top:2px;
+  }
+  .recalc-btn:active{background:rgba(255,176,32,0.08);}
+
+  /* ---------- Arrival banner ---------- */
+  .arrival-banner{position:fixed; inset:0; background:rgba(11,13,16,0.97); z-index:999; display:none; align-items:center; justify-content:center; flex-direction:column; text-align:center; padding:30px;}
+  .arrival-banner.show{display:flex;}
+  .arrival-banner .ab-icon{width:76px; height:76px; border-radius:50%; background:rgba(0,120,42,0.2); border:2px solid var(--ok); display:flex; align-items:center; justify-content:center; margin-bottom:22px;}
+  .arrival-banner .ab-icon svg{width:38px; height:38px; color:var(--ok);}
+  .arrival-banner h3{font-family:'Oswald',sans-serif; font-size:25px; text-transform:uppercase; letter-spacing:.05em; margin:0 0 8px; color:var(--text);}
+  .arrival-banner p{font-size:14.5px; color:var(--text-dim); margin:0 0 28px;}
+  .arrival-banner button{background:var(--amber); color:#1A1200; border:none; border-radius:10px; padding:14px 30px; font-family:'Oswald',sans-serif; font-weight:600; font-size:13.5px; text-transform:uppercase; letter-spacing:.06em; cursor:pointer;}
+  .kbd-hint{display:inline-block; margin-top:10px; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint);}
+
+  footer{text-align:center; font-size:10.5px; color:#454B55; margin-top:18px; letter-spacing:.03em; line-height:1.6;}
+</style>
+</head>
+<body>
+<div class="board">
+
+  <div class="topbar">
+    <span class="brand">Commute Planner</span>
+    <div class="route-pill" id="routeBar">
+      <span class="route-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 12h12M9 17l-2 4M15 17l2 4"/><circle cx="9" cy="8" r="1"/><circle cx="15" cy="8" r="1"/></svg></span>
+      <span class="kind">Train stations</span>
+      <span id="routeFrom">Set origin</span>
+      <span>→</span>
+      <span id="routeTo">Set destination</span>
+      <span class="chev">▾</span>
+    </div>
+  </div>
+
+  <div class="search-panel" id="searchPanel">
+    <div class="search-head">
+      <div>
+        <div class="search-title">Train stations</div>
+        <div class="search-head-sub" id="stationEditHint">Computed values show first. Tap Edit to change them.</div>
+      </div>
+      <button class="edit-btn" id="editStationsBtn" type="button">Edit</button>
+    </div>
+    <div class="search-row">
+      <label for="fromInput">Origin station</label>
+      <input type="text" id="fromInput" placeholder="Enter origin station" autocomplete="off" readonly>
+      <div class="results" id="fromResults"></div>
+    </div>
+    <div class="search-row">
+      <label for="toInput">Destination station</label>
+      <input type="text" id="toInput" placeholder="Enter destination station" autocomplete="off" readonly>
+      <div class="results" id="toResults"></div>
+    </div>
+    <div class="search-row">
+      <label>Day of travel</label>
+      <div class="seg" id="travelDaySeg">
+        <button type="button" data-day="auto" class="seg-btn">Auto</button>
+        <button type="button" data-day="today" class="seg-btn">Today</button>
+        <button type="button" data-day="tomorrow" class="seg-btn">Tomorrow</button>
+      </div>
+    </div>
+    <div class="search-help">
+      Auto picks today if the arrival time is still ahead, otherwise tomorrow.
+    </div>
+    <div class="search-row">
+      <label for="tflAppId">TfL app id</label>
+      <input type="text" id="tflAppId" placeholder="Optional" autocomplete="off">
+    </div>
+    <div class="search-row">
+      <label for="tflAppKey">TfL app key</label>
+      <input type="password" id="tflAppKey" placeholder="Optional" autocomplete="off">
+    </div>
+    <div class="search-help">Only needed if TfL blocks anonymous requests. Saved on this device.</div>
+  </div>
+
+  <!-- HERO: always visible, auto-updates -->
+  <div class="hero">
+    <div class="hero-label">Leave home by</div>
+    <div class="flap-row" id="flapRow"></div>
+    <div id="statusPillWrap"></div>
+    <div class="hero-sub" id="resultSub">Enter your origin and destination to get started.</div>
+
+    <div class="chip-row" id="chipRow"></div>
+  </div>
+
+  <div class="fetch-note" id="statusLine"></div>
+
+  <!-- Assumptions (collapsed by default, opened via chip tap) -->
+  <div class="panel" id="assumptionsPanel">
+    <div class="panel-header" id="assumptionsHeader">
+      <h2>Adjust assumptions</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div><div class="field-label" id="driveToParkingLabel">Drive to parking spot</div><div class="field-sub" id="driveToParkingSub">Home → parking spot</div></div>
+        <div class="stepper-wrap">
+          <button class="mode-btn" id="driveTimeModeBtn" type="button">Edit</button>
+          <div class="stepper" data-target="driveTime" data-step="1" data-min="0" data-max="120">
+            <button type="button" data-dir="-1">−</button>
+            <input type="number" id="driveTimeInput" value="32" inputmode="numeric">
+            <button type="button" data-dir="1">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Traffic buffer</div><div class="field-sub">Slack for a bad morning</div></div>
+        <div class="stepper" data-target="trafficBuffer" data-step="5" data-min="0" data-max="60">
+          <button type="button" data-dir="-1">−</button>
+          <input type="number" id="trafficBufferInput" value="5" inputmode="numeric">
+          <button type="button" data-dir="1">+</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Walk from parking spot</div><div class="field-sub" id="walkFromParkingSub">Parking spot → platform</div></div>
+        <div class="stepper-wrap">
+          <button class="mode-btn" id="walkBufferModeBtn" type="button">Edit</button>
+          <div class="stepper" data-target="walkBuffer" data-step="1" data-min="0" data-max="60">
+            <button type="button" data-dir="-1">−</button>
+            <input type="number" id="walkBufferInput" value="10" inputmode="numeric">
+            <button type="button" data-dir="1">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Arrive by</div><div class="field-sub">Meeting or event start time</div></div>
+        <input type="time" class="time-input" id="arriveBy" value="09:50">
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Parking spot</div><div class="field-sub">Enter a spot name to auto-calculate drive and walk times</div></div>
+        <input type="text" class="time-input parking-input" id="parkingSpotName" placeholder="Enter parking spot to auto-calculate">
+      </div>
+      <div class="field-row">
+        <div>
+          <div class="field-label">Parking coords</div>
+          <div class="field-sub" id="parkingSpotStatus">No saved location yet</div>
+        </div>
+        <button class="test-sound-btn" id="useCurrentParkingBtn" type="button" style="width:auto; margin-top:0; padding:10px 14px;">Use current location</button>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Start point</div><div class="field-sub">Home or departure point</div></div>
+        <input type="text" class="time-input" id="startPointName" placeholder="e.g. Home">
+      </div>
+      <div class="field-row">
+        <div>
+          <div class="field-label">Start coords</div>
+          <div class="field-sub" id="startPointStatus">No saved location yet</div>
+        </div>
+        <button class="test-sound-btn" id="useCurrentStartBtn" type="button" style="width:auto; margin-top:0; padding:10px 14px;">Use current location</button>
+      </div>
+      <div class="field-row">
+        <div><div class="field-label">Flex</div><div class="field-sub">How late is still OK</div></div>
+        <div class="stepper" data-target="flexMin" data-step="5" data-min="0" data-max="60">
+          <button type="button" data-dir="-1">−</button>
+          <input type="number" id="flexMinInput" value="15" inputmode="numeric">
+          <button type="button" data-dir="1">+</button>
+        </div>
+      </div>
+      <button class="recalc-btn" id="calcBtn">Recalculate now</button>
+    </div>
+  </div>
+
+  <!-- Journey visual, always visible once first calc runs -->
+  <div class="panel open" id="timelinePanel" style="display:none;">
+    <div class="panel-header" id="timelineHeader">
+      <h2>Your journey</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body" style="display:block;">
+      <div class="timeline-wrap">
+        <div class="timeline-track" id="timelineTrack"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Full breakdown, collapsed by default -->
+  <div class="panel" id="manifestPanel" style="display:none;">
+    <div class="panel-header" id="manifestHeader">
+      <h2>Full breakdown</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body">
+      <div id="manifestBody"></div>
+    </div>
+  </div>
+
+  <!-- Arrival alerts -->
+  <div class="panel open">
+    <div class="panel-header"><h2>Arrival alerts</h2></div>
+    <div class="panel-body" style="display:block;">
+      <div class="alert-row" id="originAlertRow">
+        <div class="alert-info">
+          <div class="alert-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg></div>
+          <div><div class="alert-name" id="originAlertName">Alert at origin</div><div class="alert-status" id="originAlertStatus">Off</div></div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="originToggle"><span class="slider"></span></label>
+      </div>
+      <div class="alert-row" id="destAlertRow">
+        <div class="alert-info">
+          <div class="alert-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.4-7-11a7 7 0 0 1 14 0c0 4.6-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></div>
+          <div><div class="alert-name" id="destAlertName">Alert at destination</div><div class="alert-status" id="destAlertStatus">Off</div></div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="destToggle"><span class="slider"></span></label>
+      </div>
+      <div class="announce-row">
+        <div class="announce-meta">
+          <div class="alert-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/><path d="M18.5 6a8 8 0 0 1 0 12"/></svg></div>
+          <div><div class="announce-name">Speak arrivals</div><div class="announce-status" id="announceStatus">Uses your device voice when supported</div></div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="announceToggle" checked><span class="slider"></span></label>
+      </div>
+      <button class="test-sound-btn" id="testSoundBtn">▶ Test sound &amp; vibration</button>
+      <div class="info-link" id="infoLink">How does this work &amp; is my location private?</div>
+      <div class="privacy-note" id="privacyNote">
+        <b>How this works:</b> your location is checked only on this device, only while the page is open, and is never sent anywhere. Turning an alert on asks your browser for location and notification permission, allow both for the full experience. Background alerts are best effort only, so keep the page open and screen on for reliable alerts.
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Live times via TfL Unified API where available · parking lookup via Nominatim · route estimates via OSRM · verify before relying on them
+  </footer>
+</div>
+
+<div class="arrival-banner" id="arrivalBanner">
+  <div class="ab-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+  <h3 id="abTitle">You've arrived</h3>
+  <p id="abSub">You're at your destination.</p>
+  <button id="abDismiss">Got it</button>
+</div>
+
+<script>
+const TFL_BASE = 'https://api.tfl.gov.uk';
+const LS_KEYS = {
+  route: 'commuter.route.v2',
+  state: 'commuter.state.v2',
+  voice: 'commuter.voice.v2',
+  arriveBy: 'commuter.arriveBy.v2',
+  travelDay: 'commuter.travelDay.v2',
+  appId: 'commuter.tfl.appId.v2',
+  appKey: 'commuter.tfl.appKey.v2',
+  startName: 'commuter.start.name.v2',
+  startLat: 'commuter.start.lat.v2',
+  startLon: 'commuter.start.lon.v2',
+  parkingName: 'commuter.parking.name.v2',
+  parkingLat: 'commuter.parking.lat.v2',
+  parkingLon: 'commuter.parking.lon.v2',
+  alerts: 'commuter.alerts.v2'
+};
+let route = {
+  fromName: '', toName: '',
+  fromId: null, toId: null,
+  fromLat: null, fromLon: null,
+  toLat: null, toLon: null,
+  startLat: null, startLon: null,
+  parkingLat: null, parkingLon: null
+};
+function loadJson(key){
+  try{
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
+    return null;
+  }
+}
+function saveJson(key, value){
+  try{
+    localStorage.setItem(key, JSON.stringify(value));
+  }catch(e){}
+}
+function loadString(key){
+  try{
+    return localStorage.getItem(key) || '';
+  }catch(e){
+    return '';
+  }
+}
+function saveString(key, value){
+  try{
+    localStorage.setItem(key, value);
+  }catch(e){}
+}
+function numOrNull(value){
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+const savedRoute = loadJson(LS_KEYS.route);
+if(savedRoute) Object.assign(route, savedRoute);
+const tflAppIdInput = document.getElementById('tflAppId');
+const tflAppKeyInput = document.getElementById('tflAppKey');
+const parkingSpotNameInput = document.getElementById('parkingSpotName');
+const parkingSpotStatus = document.getElementById('parkingSpotStatus');
+const useCurrentParkingBtn = document.getElementById('useCurrentParkingBtn');
+const startPointNameInput = document.getElementById('startPointName');
+const startPointStatus = document.getElementById('startPointStatus');
+const useCurrentStartBtn = document.getElementById('useCurrentStartBtn');
+const savedAppId = loadString(LS_KEYS.appId);
+const savedAppKey = loadString(LS_KEYS.appKey);
+if(savedAppId) tflAppIdInput.value = savedAppId;
+if(savedAppKey) tflAppKeyInput.value = savedAppKey;
+startPointNameInput.value = loadString(LS_KEYS.startName);
+route.startLat = numOrNull(loadString(LS_KEYS.startLat));
+route.startLon = numOrNull(loadString(LS_KEYS.startLon));
+parkingSpotNameInput.value = loadString(LS_KEYS.parkingName);
+route.parkingLat = numOrNull(loadString(LS_KEYS.parkingLat));
+route.parkingLon = numOrNull(loadString(LS_KEYS.parkingLon));
+
+const ICONS = {
+  home: '<path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/>',
+  car: '<path d="M5 17h14M5 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm14 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 13l1.5-5h11L19 13M5 13h14"/>',
+  walk: '<circle cx="13" cy="4" r="1.6"/><path d="M10 21l1.5-6-2-1.5.5-4.5 3-1 2 2.5 3 1.5-1 2-3-1-1 3.5 2.5 5.5"/>',
+  train: '<rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 12h12M9 17l-2 4M15 17l2 4"/><circle cx="9" cy="8" r="1"/><circle cx="15" cy="8" r="1"/>',
+  flag: '<path d="M6 21V4"/><path d="M6 4h12l-3 4 3 4H6"/>'
+};
+function iconSVG(name){ return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]}</svg>`; }
+
+/* ---------- Route bar / search ---------- */
+const routeBar = document.getElementById('routeBar');
+const searchPanel = document.getElementById('searchPanel');
+const fromInput = document.getElementById('fromInput');
+const toInput = document.getElementById('toInput');
+const fromResults = document.getElementById('fromResults');
+const toResults = document.getElementById('toResults');
+const editStationsBtn = document.getElementById('editStationsBtn');
+const stationEditHint = document.getElementById('stationEditHint');
+let stationEditMode = !route.fromName || !route.toName;
+
+function syncStationEditUI(){
+  fromInput.readOnly = !stationEditMode;
+  toInput.readOnly = !stationEditMode;
+  editStationsBtn.textContent = stationEditMode ? 'Done' : 'Edit';
+  stationEditHint.textContent = stationEditMode
+    ? 'Editing on. Pick a result or press Enter to keep exact text.'
+    : 'Computed values show first. Tap Edit to change them.';
+}
+
+function openStationPanel(editing = false){
+  searchPanel.classList.add('open');
+  stationEditMode = editing || !route.fromName || !route.toName;
+  syncStationEditUI();
+  if(stationEditMode) setTimeout(() => fromInput.focus(), 0);
+}
+
+function syncRouteUI(){
+  document.getElementById('routeFrom').textContent = route.fromName || 'Set origin';
+  document.getElementById('routeTo').textContent = route.toName || 'Set destination';
+  document.getElementById('originAlertName').textContent = `Alert at ${route.fromName || 'origin'}`;
+  document.getElementById('destAlertName').textContent = `Alert at ${route.toName || 'destination'}`;
+}
+function updateParkingLabels(){
+  const spot = parkingSpotNameInput.value.trim() || 'parking spot';
+  document.getElementById('driveToParkingLabel').textContent = `Drive to ${spot}`;
+  document.getElementById('driveToParkingSub').textContent = `Home → ${spot}`;
+  document.getElementById('walkFromParkingSub').textContent = `${spot} → platform`;
+}
+function persistRoute(){ saveJson(LS_KEYS.route, route); }
+function syncParkingUI(){
+  parkingSpotStatus.textContent = route.parkingLat == null || route.parkingLon == null
+    ? 'No saved location yet'
+    : `Saved location: ${route.parkingLat.toFixed(5)}, ${route.parkingLon.toFixed(5)}`;
+  updateParkingLabels();
+}
+function syncStartUI(){
+  startPointStatus.textContent = route.startLat == null || route.startLon == null
+    ? 'No saved location yet'
+    : `Saved location: ${route.startLat.toFixed(5)}, ${route.startLon.toFixed(5)}`;
+}
+function persistStart(){
+  saveString(LS_KEYS.startName, startPointNameInput.value.trim());
+  saveString(LS_KEYS.startLat, route.startLat == null ? '' : String(route.startLat));
+  saveString(LS_KEYS.startLon, route.startLon == null ? '' : String(route.startLon));
+  persistRoute();
+  syncStartUI();
+}
+function persistParking(){
+  saveString(LS_KEYS.parkingName, parkingSpotNameInput.value.trim());
+  saveString(LS_KEYS.parkingLat, route.parkingLat == null ? '' : String(route.parkingLat));
+  saveString(LS_KEYS.parkingLon, route.parkingLon == null ? '' : String(route.parkingLon));
+  persistRoute();
+  syncParkingUI();
+}
+function applyRoutePart(side, value, id, lat, lon){
+  const nameKey = side === 'from' ? 'fromName' : 'toName';
+  const idKey = side === 'from' ? 'fromId' : 'toId';
+  const latKey = side === 'from' ? 'fromLat' : 'toLat';
+  const lonKey = side === 'from' ? 'fromLon' : 'toLon';
+  route[nameKey] = value;
+  route[idKey] = id || value;
+  route[latKey] = lat ?? null;
+  route[lonKey] = lon ?? null;
+  if(side === 'from') fromInput.value = value;
+  else toInput.value = value;
+  syncRouteUI();
+  persistRoute();
+  if(side === 'from' && route.parkingLat != null && route.parkingLon != null){
+    updateParkingWalkEstimate().then(() => scheduleCalc());
+  }
+  scheduleCalc();
+}
+function applyExactText(side, value){
+  applyRoutePart(side, value, value, null, null);
+}
+function selectedTravelDay(){
+  const active = document.querySelector('#travelDaySeg .seg-btn.active');
+  return active ? active.dataset.day : 'auto';
+}
+function resolveArriveMoment(arriveByHHMM, now = new Date(), day = selectedTravelDay()){
+  const [hh, mm] = arriveByHHMM.split(':').map(Number);
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let target, label;
+  if(day === 'today'){
+    target = new Date(base.getTime() + hh*3600000 + mm*60000);
+    label = 'today';
+  }else if(day === 'tomorrow'){
+    target = new Date(base.getTime() + 86400000 + hh*3600000 + mm*60000);
+    label = 'tomorrow';
+  }else{
+    target = new Date(base.getTime() + hh*3600000 + mm*60000);
+    label = 'today';
+    if(target.getTime() <= now.getTime()){
+      target.setDate(target.getDate() + 1);
+      label = 'tomorrow';
+    }
+  }
+  return { target, label };
+}
+function formatLeadTime(diffMin){
+  if(diffMin < 90) return `${diffMin} min`;
+  const hours = Math.floor(diffMin / 60);
+  const mins = diffMin % 60;
+  if(mins === 0) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+async function updateDriveEstimate(){
+  if(route.startLat == null || route.startLon == null || route.parkingLat == null || route.parkingLon == null){
+    state.driveTimeAutoMin = null;
+    syncAutoFields();
+    persistState();
+    return null;
+  }
+  try{
+    const url = `https://router.project-osrm.org/route/v1/driving/${route.startLon},${route.startLat};${route.parkingLon},${route.parkingLat}?overview=false&steps=false`;
+    const data = await fetchJSONPlain(url);
+    const best = data.routes && data.routes[0];
+    if(!best || !best.duration) throw new Error('No route');
+    state.driveTimeAutoMin = Math.max(1, Math.round(best.duration / 60));
+  }catch(e){
+    state.driveTimeAutoMin = null;
+  }
+  syncAutoFields();
+  persistState();
+  return state.driveTimeAutoMin;
+}
+let startLocationPrompted = false;
+async function autoRequestStartLocation(){
+  if(startLocationPrompted) return;
+  startLocationPrompted = true;
+  if(route.startLat != null && route.startLon != null) return;
+  if(!('geolocation' in navigator)) return;
+  try{
+    const pos = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+    });
+    route.startLat = pos.coords.latitude;
+    route.startLon = pos.coords.longitude;
+    if(!startPointNameInput.value.trim()) startPointNameInput.value = 'Current location';
+    persistStart();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }catch(e){}
+}
+routeBar.addEventListener('click', () => {
+  if(searchPanel.classList.contains('open')){
+    searchPanel.classList.remove('open');
+    stationEditMode = !route.fromName || !route.toName;
+    syncStationEditUI();
+    return;
+  }
+  openStationPanel(false);
+});
+syncRouteUI();
+syncStationEditUI();
+
+function debounce(fn, wait){ let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; }
+async function fetchJSON(url){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try{
+    const u = new URL(url);
+    const appId = tflAppIdInput.value.trim() || loadString(LS_KEYS.appId);
+    const appKey = tflAppKeyInput.value.trim() || loadString(LS_KEYS.appKey);
+    if(appId) u.searchParams.set('app_id', appId);
+    if(appKey) u.searchParams.set('app_key', appKey);
+    const res = await fetch(u.toString(), {signal: controller.signal});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+async function fetchJSONPlain(url){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try{
+    const res = await fetch(url, {signal: controller.signal});
+    if(!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+function parseLatLon(text){
+  const m = text.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if(!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if(Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return { lat, lon };
+}
+async function geocodeParkingSpot(query){
+  const q = query.trim();
+  if(!q) return null;
+  const direct = parseLatLon(q);
+  if(direct) return direct;
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+  const data = await fetchJSONPlain(url);
+  const place = Array.isArray(data) ? data[0] : null;
+  if(!place) return null;
+  const lat = Number(place.lat);
+  const lon = Number(place.lon);
+  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon, label: place.display_name || q };
+}
+async function updateParkingWalkEstimate(){
+  if(route.parkingLat == null || route.parkingLon == null || route.fromLat == null || route.fromLon == null){
+    state.parkingWalkAutoMin = null;
+    syncAutoFields();
+    syncParkingUI();
+    persistState();
+    return null;
+  }
+  try{
+    const url = `https://router.project-osrm.org/route/v1/foot/${route.parkingLon},${route.parkingLat};${route.fromLon},${route.fromLat}?overview=false&steps=false`;
+    const data = await fetchJSONPlain(url);
+    const best = data.routes && data.routes[0];
+    if(!best || !best.duration) throw new Error('No route');
+    state.parkingWalkAutoMin = Math.max(1, Math.round(best.duration / 60));
+  }catch(e){
+    state.parkingWalkAutoMin = null;
+  }
+  syncAutoFields();
+  syncParkingUI();
+  persistState();
+  return state.parkingWalkAutoMin;
+}
+
+async function searchStations(query, resultsEl, nameElId, idKey, latKey, lonKey, alertNameElId){
+  if(query.length < 2){ resultsEl.innerHTML = ''; return; }
+  try{
+    const urls = [
+      `${TFL_BASE}/StopPoint/Search/${encodeURIComponent(query)}?modes=tube,dlr,overground,national-rail,elizabeth-line`,
+      `${TFL_BASE}/StopPoint/Search/${encodeURIComponent(query)}`
+    ];
+    let matches = [];
+    let lastErr = null;
+    for(const url of urls){
+      try{
+        const data = await fetchJSON(url);
+        matches = (data.matches || []).slice(0, 6);
+        if(matches.length) break;
+      }catch(e){
+        lastErr = e;
+      }
+    }
+    resultsEl.innerHTML = '';
+    if(!matches.length){
+      resultsEl.innerHTML = '<div class="result-item">No TfL match. Press Enter to use exact text.</div>';
+      if(lastErr) resultsEl.innerHTML += '';
+      return;
+    }
+    matches.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      div.textContent = m.name;
+      div.addEventListener('click', () => {
+        applyRoutePart(nameElId === 'routeFrom' ? 'from' : 'to', m.name, m.id, m.lat, m.lon);
+        resultsEl.innerHTML = '';
+        searchPanel.classList.remove('open');
+      });
+      resultsEl.appendChild(div);
+    });
+  }catch(e){
+    resultsEl.innerHTML = '<div class="result-item">Search unavailable right now. Press Enter to keep text.</div>';
+  }
+}
+fromInput.value = route.fromName;
+toInput.value = route.toName;
+editStationsBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  stationEditMode = (!route.fromName || !route.toName) ? true : !stationEditMode;
+  syncStationEditUI();
+  if(stationEditMode){
+    setTimeout(() => fromInput.focus(), 0);
+  }else{
+    fromResults.innerHTML = '';
+    toResults.innerHTML = '';
+  }
+});
+fromInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
+toInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
+fromInput.addEventListener('input', debounce(e => { if(stationEditMode) searchStations(e.target.value.trim(), fromResults, 'routeFrom', 'fromId', 'fromLat', 'fromLon', 'originAlertName'); }, 300));
+toInput.addEventListener('input', debounce(e => { if(stationEditMode) searchStations(e.target.value.trim(), toResults, 'routeTo', 'toId', 'toLat', 'toLon', 'destAlertName'); }, 300));
+fromInput.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); const value = fromInput.value.trim(); if(value) applyExactText('from', value); fromResults.innerHTML = ''; searchPanel.classList.remove('open'); }});
+toInput.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); const value = toInput.value.trim(); if(value) applyExactText('to', value); toResults.innerHTML = ''; searchPanel.classList.remove('open'); }});
+
+/* ---------- Collapsible panels ---------- */
+function wirePanelToggle(headerId, panelEl){
+  document.getElementById(headerId).addEventListener('click', () => panelEl.classList.toggle('open'));
+}
+const assumptionsPanel = document.getElementById('assumptionsPanel');
+wirePanelToggle('assumptionsHeader', assumptionsPanel);
+wirePanelToggle('timelineHeader', document.getElementById('timelinePanel'));
+wirePanelToggle('manifestHeader', document.getElementById('manifestPanel'));
+
+document.getElementById('chipRow').addEventListener('click', () => {
+  assumptionsPanel.classList.add('open');
+  assumptionsPanel.scrollIntoView({behavior:'smooth', block:'center'});
+});
+
+const infoLink = document.getElementById('infoLink');
+const privacyNote = document.getElementById('privacyNote');
+infoLink.addEventListener('click', () => privacyNote.classList.toggle('open'));
+
+/* ---------- Steppers (real inline inputs, no prompt()) ---------- */
+const state = { driveTime: 32, trafficBuffer: 5, walkBuffer: 10, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null };
+const savedState = loadJson(LS_KEYS.state);
+if(savedState) Object.assign(state, savedState);
+if(!Number.isFinite(state.driveTimeAutoMin)) state.driveTimeAutoMin = null;
+if(!Number.isFinite(state.parkingWalkAutoMin)) state.parkingWalkAutoMin = null;
+const driveTimeInput = document.getElementById('driveTimeInput');
+const walkBufferInput = document.getElementById('walkBufferInput');
+const trafficBufferInput = document.getElementById('trafficBufferInput');
+const flexMinInput = document.getElementById('flexMinInput');
+const driveTimeModeBtn = document.getElementById('driveTimeModeBtn');
+const walkBufferModeBtn = document.getElementById('walkBufferModeBtn');
+let driveTimeManualMode = false;
+let walkBufferManualMode = false;
+const announceToggle = document.getElementById('announceToggle');
+const announceStatus = document.getElementById('announceStatus');
+const savedVoice = loadString(LS_KEYS.voice);
+let announceEnabled = savedVoice === '' ? true : savedVoice === 'true';
+announceToggle.checked = announceEnabled;
+announceStatus.classList.toggle('on', announceEnabled);
+announceStatus.textContent = announceEnabled ? 'Uses your device voice when supported' : 'Voice off. Tone only.';
+function persistState(){
+  saveJson(LS_KEYS.state, state);
+  saveString(LS_KEYS.voice, String(announceEnabled));
+}
+function autoValueFor(target){
+  if(target === 'driveTime') return state.driveTimeAutoMin;
+  if(target === 'walkBuffer') return state.parkingWalkAutoMin;
+  return null;
+}
+function manualModeFor(target){
+  if(target === 'driveTime') return driveTimeManualMode;
+  if(target === 'walkBuffer') return walkBufferManualMode;
+  return true;
+}
+function setManualMode(target, manual){
+  if(target === 'driveTime') driveTimeManualMode = manual;
+  if(target === 'walkBuffer') walkBufferManualMode = manual;
+  syncAutoField(target);
+}
+function syncAutoField(target){
+  const inputEl = target === 'driveTime' ? driveTimeInput : walkBufferInput;
+  const modeBtn = target === 'driveTime' ? driveTimeModeBtn : walkBufferModeBtn;
+  const auto = autoValueFor(target);
+  const manualMode = manualModeFor(target);
+  modeBtn.hidden = auto == null;
+  if(auto != null && !manualMode){
+    inputEl.readOnly = true;
+    inputEl.value = auto;
+    modeBtn.textContent = 'Edit';
+  }else{
+    inputEl.readOnly = false;
+    inputEl.value = state[target];
+    modeBtn.textContent = auto != null ? 'Use auto' : 'Edit';
+  }
+}
+function syncAutoFields(){
+  syncAutoField('driveTime');
+  syncAutoField('walkBuffer');
+}
+document.querySelectorAll('.stepper').forEach(stepper => {
+  const target = stepper.dataset.target;
+  const step = parseInt(stepper.dataset.step, 10);
+  const min = parseInt(stepper.dataset.min, 10);
+  const max = parseInt(stepper.dataset.max, 10);
+  const inputEl = stepper.querySelector('input');
+  stepper.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dir = parseInt(btn.dataset.dir, 10);
+      if(!manualModeFor(target)) setManualMode(target, true);
+      let next = Math.max(min, Math.min(max, state[target] + dir*step));
+      state[target] = next; inputEl.value = next;
+      persistState();
+      syncAutoField(target);
+      scheduleCalc();
+    });
+  });
+  inputEl.addEventListener('change', () => {
+    let v = parseInt(inputEl.value, 10);
+    if(isNaN(v)) v = state[target];
+    v = Math.max(min, Math.min(max, v));
+    if(!manualModeFor(target)) setManualMode(target, true);
+    state[target] = v; inputEl.value = v;
+    persistState();
+    syncAutoField(target);
+    scheduleCalc();
+  });
+});
+driveTimeModeBtn.addEventListener('click', () => {
+  if(autoValueFor('driveTime') == null) return;
+  setManualMode('driveTime', !manualModeFor('driveTime'));
+  scheduleCalc();
+});
+walkBufferModeBtn.addEventListener('click', () => {
+  if(autoValueFor('walkBuffer') == null) return;
+  setManualMode('walkBuffer', !manualModeFor('walkBuffer'));
+  scheduleCalc();
+});
+syncAutoFields();
+document.getElementById('arriveBy').addEventListener('change', scheduleCalc);
+const savedArriveBy = loadString(LS_KEYS.arriveBy);
+if(savedArriveBy) document.getElementById('arriveBy').value = savedArriveBy;
+document.getElementById('arriveBy').addEventListener('change', () => {
+  saveString(LS_KEYS.arriveBy, document.getElementById('arriveBy').value);
+});
+const travelDaySeg = document.getElementById('travelDaySeg');
+const savedTravelDay = loadString(LS_KEYS.travelDay) || 'auto';
+travelDaySeg.querySelectorAll('.seg-btn').forEach(btn => {
+  btn.classList.toggle('active', btn.dataset.day === savedTravelDay);
+});
+travelDaySeg.addEventListener('click', e => {
+  const btn = e.target.closest('.seg-btn');
+  if(!btn) return;
+  travelDaySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+  saveString(LS_KEYS.travelDay, btn.dataset.day);
+  renderChips();
+  scheduleCalc();
+});
+tflAppIdInput.addEventListener('change', () => saveString(LS_KEYS.appId, tflAppIdInput.value.trim()));
+tflAppKeyInput.addEventListener('change', () => saveString(LS_KEYS.appKey, tflAppKeyInput.value.trim()));
+let parkingLookupTimer = null;
+let startLookupTimer = null;
+async function resolveStartFromInput(){
+  const value = startPointNameInput.value.trim();
+  saveString(LS_KEYS.startName, value);
+  if(!value){
+    route.startLat = null;
+    route.startLon = null;
+    state.driveTimeAutoMin = null;
+    persistStart();
+    persistState();
+    scheduleCalc();
+    return;
+  }
+  const direct = parseLatLon(value);
+  if(direct){
+    route.startLat = direct.lat;
+    route.startLon = direct.lon;
+    startPointStatus.textContent = `Saved coords: ${direct.lat.toFixed(5)}, ${direct.lon.toFixed(5)}`;
+    persistStart();
+    await updateDriveEstimate();
+    scheduleCalc();
+    return;
+  }
+  startPointStatus.textContent = 'Looking up place...';
+  try{
+    const place = await geocodeParkingSpot(value);
+    if(!place){
+      route.startLat = null;
+      route.startLon = null;
+      state.driveTimeAutoMin = null;
+      startPointStatus.textContent = 'Could not find coords for that place';
+      persistStart();
+      persistState();
+      scheduleCalc();
+      return;
+    }
+    route.startLat = place.lat;
+    route.startLon = place.lon;
+    startPointStatus.textContent = place.label ? place.label : `Saved coords: ${place.lat.toFixed(5)}, ${place.lon.toFixed(5)}`;
+    persistStart();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }catch(e){
+    startPointStatus.textContent = 'Lookup failed. You can type lat,lng instead.';
+    route.startLat = null;
+    route.startLon = null;
+    state.driveTimeAutoMin = null;
+    persistStart();
+    persistState();
+    scheduleCalc();
+  }
+}
+async function resolveParkingFromInput(){
+  const value = parkingSpotNameInput.value.trim();
+  saveString(LS_KEYS.parkingName, value);
+  if(!value){
+    route.parkingLat = null;
+    route.parkingLon = null;
+    state.parkingWalkAutoMin = null;
+    persistParking();
+    scheduleCalc();
+    return;
+  }
+  const direct = parseLatLon(value);
+  if(direct){
+    route.parkingLat = direct.lat;
+    route.parkingLon = direct.lon;
+    parkingSpotStatus.textContent = `Saved coords: ${direct.lat.toFixed(5)}, ${direct.lon.toFixed(5)}`;
+    persistParking();
+    await updateParkingWalkEstimate();
+    await updateDriveEstimate();
+    scheduleCalc();
+    return;
+  }
+  parkingSpotStatus.textContent = 'Looking up place...';
+  try{
+    const place = await geocodeParkingSpot(value);
+    if(!place){
+      route.parkingLat = null;
+      route.parkingLon = null;
+      state.parkingWalkAutoMin = null;
+      parkingSpotStatus.textContent = 'Could not find coords for that place';
+      persistParking();
+      scheduleCalc();
+      return;
+    }
+    route.parkingLat = place.lat;
+    route.parkingLon = place.lon;
+    parkingSpotStatus.textContent = place.label ? place.label : `Saved coords: ${place.lat.toFixed(5)}, ${place.lon.toFixed(5)}`;
+    persistParking();
+    await updateParkingWalkEstimate();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }catch(e){
+    parkingSpotStatus.textContent = 'Lookup failed. You can type lat,lng instead.';
+    route.parkingLat = null;
+    route.parkingLon = null;
+    state.parkingWalkAutoMin = null;
+    persistParking();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }
+}
+startPointNameInput.addEventListener('input', () => {
+  clearTimeout(startLookupTimer);
+  startLookupTimer = setTimeout(resolveStartFromInput, 700);
+});
+startPointNameInput.addEventListener('change', resolveStartFromInput);
+parkingSpotNameInput.addEventListener('input', () => {
+  updateParkingLabels();
+  clearTimeout(parkingLookupTimer);
+  parkingLookupTimer = setTimeout(resolveParkingFromInput, 700);
+});
+parkingSpotNameInput.addEventListener('change', resolveParkingFromInput);
+useCurrentParkingBtn.addEventListener('click', async () => {
+  if(!('geolocation' in navigator)){
+    parkingSpotStatus.textContent = 'Location not supported here';
+    return;
+  }
+  parkingSpotStatus.textContent = 'Saving current location...';
+  navigator.geolocation.getCurrentPosition(async pos => {
+    route.parkingLat = pos.coords.latitude;
+    route.parkingLon = pos.coords.longitude;
+    persistParking();
+    await updateParkingWalkEstimate();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }, () => {
+    parkingSpotStatus.textContent = 'Could not read current location';
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+});
+useCurrentStartBtn.addEventListener('click', async () => {
+  if(!('geolocation' in navigator)){
+    startPointStatus.textContent = 'Location not supported here';
+    return;
+  }
+  startPointStatus.textContent = 'Saving current location...';
+  navigator.geolocation.getCurrentPosition(async pos => {
+    route.startLat = pos.coords.latitude;
+    route.startLon = pos.coords.longitude;
+    persistStart();
+    await updateDriveEstimate();
+    scheduleCalc();
+  }, () => {
+    startPointStatus.textContent = 'Could not read current location';
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
+});
+document.getElementById('announceToggle').addEventListener('change', e => {
+  announceEnabled = e.target.checked;
+  announceStatus.classList.toggle('on', announceEnabled);
+  announceStatus.textContent = announceEnabled ? 'Uses your device voice when supported' : 'Voice off. Tone only.';
+  persistState();
+});
+document.getElementById('driveTimeInput').value = state.driveTime;
+document.getElementById('trafficBufferInput').value = state.trafficBuffer;
+document.getElementById('walkBufferInput').value = state.walkBuffer;
+document.getElementById('flexMinInput').value = state.flexMin;
+syncRouteUI();
+syncStartUI();
+syncParkingUI();
+syncAutoFields();
+autoRequestStartLocation();
+fromInput.value = route.fromName;
+toInput.value = route.toName;
+syncStationEditUI();
+if(route.startLat != null && route.startLon != null && route.parkingLat != null && route.parkingLon != null){
+  updateDriveEstimate();
+}
+if(route.parkingLat != null && route.parkingLon != null){
+  updateParkingWalkEstimate();
+}
+
+/* ---------- Journey lookup ---------- */
+async function getJourney(arriveByHHMM){
+  if(!route.fromId || !route.toId) throw new Error('Route not set');
+  const now = new Date();
+  const { target } = resolveArriveMoment(arriveByHHMM, now);
+  const dateStr = `${target.getFullYear()}${String(target.getMonth()+1).padStart(2,'0')}${String(target.getDate()).padStart(2,'0')}`;
+  const timeStr = arriveByHHMM.replace(':','');
+  const from = (route.fromLat != null && route.fromLon != null) ? `${route.fromLat},${route.fromLon}` : (route.fromId || route.fromName);
+  const to = (route.toLat != null && route.toLon != null) ? `${route.toLat},${route.toLon}` : (route.toId || route.toName);
+  const qs = new URLSearchParams({
+    date: dateStr,
+    time: timeStr,
+    timeIs: 'Arriving',
+    journeyPreference: 'LeastTime',
+    fromName: route.fromName,
+    toName: route.toName
+  });
+  const data = await fetchJSON(`${TFL_BASE}/Journey/JourneyResults/${encodeURIComponent(from)}/to/${encodeURIComponent(to)}?${qs.toString()}`);
+  if(!data.journeys || !data.journeys.length) throw new Error('No journeys returned');
+  return data.journeys[0];
+}
+function fmtHM(date){ return date.toTimeString().slice(0,5); }
+function addMinutes(date, mins){ return new Date(date.getTime() + mins*60000); }
+
+function renderFlaps(hhmm, pending){
+  const flapRow = document.getElementById('flapRow');
+  flapRow.innerHTML = '';
+  [hhmm[0], hhmm[1], ':', hhmm[3], hhmm[4]].forEach(ch => {
+    const el = document.createElement('div');
+    el.className = (ch === ':' ? 'flap colon' : 'flap') + (pending ? ' pending' : '');
+    el.textContent = ch;
+    flapRow.appendChild(el);
+  });
+  if(!pending){
+    requestAnimationFrame(() => {
+      flapRow.querySelectorAll('.flap').forEach((el,i) => setTimeout(() => el.classList.add('flipping'), i*60));
+    });
+  }
+}
+
+function renderStatusPill(leaveHomeDate, arriveLabel){
+  const now = new Date();
+  const diffMin = Math.round((leaveHomeDate.getTime() - now.getTime()) / 60000);
+  const wrap = document.getElementById('statusPillWrap');
+  let cls, text;
+  const datePrefix = arriveLabel === 'tomorrow' ? 'Tomorrow, ' : '';
+  const leadText = formatLeadTime(Math.abs(diffMin));
+  if(diffMin < -2){ cls='alert'; text = `${datePrefix}Running behind, should have left ${leadText} ago`; }
+  else if(diffMin <= 10){ cls='warn'; text = diffMin <= 0 ? `${datePrefix}Leave now` : `${datePrefix}Leaving soon, ${leadText} to go`; }
+  else{ cls='ok'; text = `${datePrefix}On track, leave in ${leadText}`; }
+  wrap.innerHTML = `<div class="status-pill ${cls}"><span class="pdot"></span>${text}</div>`;
+}
+
+function renderTimeline(stops){
+  const track = document.getElementById('timelineTrack');
+  track.innerHTML = '';
+  stops.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 't-stop';
+    div.innerHTML = `<div class="t-icon">${iconSVG(s.icon)}</div><div class="t-time">${s.time}</div><div class="t-label">${s.label}</div>`;
+    track.appendChild(div);
+  });
+  document.getElementById('timelinePanel').style.display = 'block';
+}
+
+function renderChips(){
+  const d = state.driveTimeAutoMin ?? state.driveTime, t = state.trafficBuffer, w = state.parkingWalkAutoMin ?? state.walkBuffer;
+  const effectiveWalk = state.parkingWalkAutoMin ?? w;
+  const arriveBy = document.getElementById('arriveBy').value;
+  const { label } = resolveArriveMoment(arriveBy);
+  document.getElementById('chipRow').innerHTML = `
+    <div class="chip">🚗 <b>${d}m</b> drive</div>
+    <div class="chip">🚦 <b>+${t}m</b> buffer</div>
+    <div class="chip">🚶 <b>${effectiveWalk}m</b> walk</div>
+    <div class="chip">🎯 <b>${label} ${arriveBy}</b></div>
+  `;
+}
+
+let calcTimer = null;
+function scheduleCalc(){
+  syncAutoFields();
+  renderChips();
+  clearTimeout(calcTimer);
+  calcTimer = setTimeout(runCalc, 450);
+}
+
+const statusLine = document.getElementById('statusLine');
+const resultSub = document.getElementById('resultSub');
+const manifestPanel = document.getElementById('manifestPanel');
+const manifestBody = document.getElementById('manifestBody');
+
+async function runCalc(){
+  renderFlaps('----', true);
+  statusLine.textContent = '';
+  statusLine.className = 'fetch-note';
+
+  if(!route.fromId || !route.toId){
+    statusLine.textContent = 'Enter your origin and destination to calculate your commute.';
+    resultSub.textContent = 'Set both stations to see the leave-by time.';
+    document.getElementById('statusPillWrap').innerHTML = '';
+    document.getElementById('timelinePanel').style.display = 'none';
+    manifestPanel.style.display = 'none';
+    return;
+  }
+
+  const driveTime = state.driveTimeAutoMin ?? state.driveTime, trafficBuffer = state.trafficBuffer, walkBuffer = state.parkingWalkAutoMin ?? state.walkBuffer, flexMin = state.flexMin;
+  const arriveBy = document.getElementById('arriveBy').value || '09:50';
+  const now = new Date();
+  const { target: arriveDate, label: arriveLabel } = resolveArriveMoment(arriveBy, now);
+  let journeyDepartDate, journeyArriveDate, journeyDurationMin, live = true, journeyDetail = '';
+  try{
+    const journey = await getJourney(arriveBy);
+    journeyDepartDate = new Date(journey.startDateTime);
+    journeyArriveDate = new Date(journey.arrivalDateTime);
+    journeyDurationMin = journey.duration;
+    const legs = journey.legs || [];
+    journeyDetail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
+  }catch(e){
+    live = false;
+    journeyDurationMin = 55;
+    journeyArriveDate = new Date(arriveDate);
+    journeyDepartDate = addMinutes(journeyArriveDate, -journeyDurationMin);
+    journeyDetail = 'Scheduled estimate, live data unavailable';
+    statusLine.textContent = `Live TfL data unreachable (${e.message}). Showing a ~55 min estimate instead. Try exact station names if search is flaky.`;
+    statusLine.classList.add('error');
+  }
+
+  const totalLeadMin = driveTime + trafficBuffer + walkBuffer;
+  const leaveHomeDate = addMinutes(journeyDepartDate, -totalLeadMin);
+  const parkArriveDate = addMinutes(leaveHomeDate, driveTime + trafficBuffer);
+  const platformArriveDate = addMinutes(parkArriveDate, walkBuffer);
+
+  let flexNote = '';
+  if(live && flexMin > 0){
+    try{
+      const flexArrive = new Date(arriveDate.getTime() + flexMin*60000);
+      const flexJourney = await getJourney(fmtHM(flexArrive));
+      const flexDepart = new Date(flexJourney.startDateTime);
+      const flexLeaveHome = addMinutes(flexDepart, -totalLeadMin);
+      if(flexLeaveHome.getTime() > leaveHomeDate.getTime() + 60000){
+        flexNote = ` With ${flexMin} min flex, as late as <b>${fmtHM(flexLeaveHome)}</b> still works.`;
+      }
+    }catch(e){}
+  }
+
+  const leaveHHMM = fmtHM(leaveHomeDate);
+  renderFlaps(leaveHHMM, false);
+  renderStatusPill(leaveHomeDate, arriveLabel);
+  resultSub.innerHTML = `Arrives <b>${route.toName}</b> ${arriveLabel} ${fmtHM(journeyArriveDate)}.${flexNote}`;
+  renderChips();
+
+  renderTimeline([
+    {icon:'home', time:fmtHM(leaveHomeDate), label:'Leave home'},
+    {icon:'car', time:fmtHM(parkArriveDate), label:'Park'},
+    {icon:'walk', time:fmtHM(platformArriveDate), label:'Platform'},
+    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
+  ]);
+
+  manifestBody.innerHTML = `
+    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveTimeAutoMin != null ? 'Auto-estimated drive' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Walk to platform, ${walkBuffer} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>
+  `;
+  manifestPanel.style.display = 'block';
+
+  if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
+}
+document.getElementById('calcBtn').addEventListener('click', runCalc);
+
+/* run once automatically on load with defaults */
+renderChips();
+runCalc();
+
+/* ================= Arrival Alerts ================= */
+const GEOFENCE_RADIUS_M = 200;
+const GEOFENCE_RESET_M = 300;
+let watchId = null;
+const alerts = {
+  origin: { active:false, arrived:false, lat:()=>route.fromLat, lon:()=>route.fromLon, name:()=>route.fromName,
+    statusEl: document.getElementById('originAlertStatus'), toggleEl: document.getElementById('originToggle') },
+  destination: { active:false, arrived:false, lat:()=>route.toLat, lon:()=>route.toLon, name:()=>route.toName,
+    statusEl: document.getElementById('destAlertStatus'), toggleEl: document.getElementById('destToggle') }
+};
+function saveAlertPrefs(){
+  try{
+    saveString(LS_KEYS.alerts, JSON.stringify({
+      origin:{checked: alerts.origin.toggleEl.checked, arrived: alerts.origin.arrived},
+      destination:{checked: alerts.destination.toggleEl.checked, arrived: alerts.destination.arrived}
+    }));
+  }catch(e){}
+}
+function loadAlertPrefs(){
+  try{
+    const raw = loadString(LS_KEYS.alerts);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){
+    return null;
+  }
+}
+const savedAlerts = loadAlertPrefs();
+if(savedAlerts?.origin){
+  alerts.origin.toggleEl.checked = !!savedAlerts.origin.checked;
+  alerts.origin.arrived = !!savedAlerts.origin.arrived;
+  alerts.origin.active = !!savedAlerts.origin.checked;
+}
+if(savedAlerts?.destination){
+  alerts.destination.toggleEl.checked = !!savedAlerts.destination.checked;
+  alerts.destination.arrived = !!savedAlerts.destination.arrived;
+  alerts.destination.active = !!savedAlerts.destination.checked;
+}
+if(alerts.origin.toggleEl.checked){
+  setStatus('origin', alerts.origin.arrived ? `Arrived at ${alerts.origin.name()}` : 'Watching your location...', alerts.origin.arrived ? 'arrived' : 'watching');
+}
+if(alerts.destination.toggleEl.checked){
+  setStatus('destination', alerts.destination.arrived ? `Arrived at ${alerts.destination.name()}` : 'Watching your location...', alerts.destination.arrived ? 'arrived' : 'watching');
+}
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371000; const toRad = d => d*Math.PI/180;
+  const dLat = toRad(lat2-lat1), dLon = toRad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function setStatus(key, text, cls){ const a=alerts[key]; a.statusEl.textContent=text; a.statusEl.className='alert-status'+(cls?' '+cls:''); }
+function anyActive(){ return alerts.origin.active || alerts.destination.active; }
+function startWatchIfNeeded(){
+  if(watchId !== null) return;
+  if(!('geolocation' in navigator)){ ['origin','destination'].forEach(k=>{if(alerts[k].active) setStatus(k,'Location not supported here','error');}); return; }
+  watchId = navigator.geolocation.watchPosition(onPosition, onPositionError, {enableHighAccuracy:true, maximumAge:5000, timeout:15000});
+}
+function stopWatchIfIdle(){ if(!anyActive() && watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; } }
+function onPosition(pos){
+  const {latitude, longitude} = pos.coords;
+  ['origin','destination'].forEach(key => {
+    const a = alerts[key];
+    const lat=a.lat(), lon=a.lon();
+    if(lat==null || lon==null){ setStatus(key,'No location data for this station','error'); return; }
+    const dist = haversine(latitude, longitude, lat, lon);
+    if(!a.active) return;
+    if(a.arrived){
+      if(dist >= GEOFENCE_RESET_M){
+        a.arrived = false;
+        setStatus(key, `Watching, ${Math.round(dist)} m away`, 'watching');
+        saveAlertPrefs();
+      }
+      return;
+    }
+    if(dist <= GEOFENCE_RADIUS_M) triggerArrival(key);
+    else setStatus(key, `Watching, ${Math.round(dist)} m away`, 'watching');
+  });
+}
+function onPositionError(){ ['origin','destination'].forEach(key=>{if(alerts[key].active) setStatus(key,'Location permission needed','error');}); }
+function playChime(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    [660,880].forEach((freq,i)=>{
+      const osc=ctx.createOscillator(), gain=ctx.createGain();
+      osc.type='sine'; osc.frequency.value=freq;
+      const start=ctx.currentTime+i*0.15;
+      gain.gain.setValueAtTime(0,start);
+      gain.gain.linearRampToValueAtTime(0.25,start+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001,start+0.5);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start); osc.stop(start+0.55);
+    });
+  }catch(e){}
+}
+function vibrate(){ if('vibrate' in navigator) navigator.vibrate([180,90,180]); }
+function speak(text){
+  if(!announceEnabled || !('speechSynthesis' in window) || !text) return;
+  try{
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.02;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    window.speechSynthesis.speak(utterance);
+  }catch(e){}
+}
+function showBanner(title, sub){ document.getElementById('abTitle').textContent=title; document.getElementById('abSub').textContent=sub; document.getElementById('arrivalBanner').classList.add('show'); }
+document.getElementById('abDismiss').addEventListener('click', () => document.getElementById('arrivalBanner').classList.remove('show'));
+function triggerArrival(key){
+  const a = alerts[key];
+  a.arrived = true;
+  setStatus(key, `Arrived at ${a.name()}`, 'arrived');
+  playChime(); vibrate();
+  const message = `You have arrived at ${a.name()}.`;
+  showBanner("You've arrived", message);
+  speak(message);
+  if('Notification' in window && Notification.permission==='granted'){
+    try{ new Notification("You've arrived", {body:`You're at ${a.name()}.`, silent:false}); }catch(e){}
+  }
+  saveAlertPrefs();
+  stopWatchIfIdle();
+}
+async function enableAlert(key){
+  const a = alerts[key];
+  if(a.lat()==null || a.lon()==null){ setStatus(key,'No location data for this station','error'); a.toggleEl.checked=false; return; }
+  setStatus(key,'Requesting permission...',null);
+  if(!('geolocation' in navigator)){ setStatus(key,'Location not supported here','error'); a.toggleEl.checked=false; return; }
+  if('Notification' in window && Notification.permission==='default'){ try{ await Notification.requestPermission(); }catch(e){} }
+  a.active=true; a.arrived=false;
+  setStatus(key,'Watching your location…','watching');
+  saveAlertPrefs();
+  startWatchIfNeeded();
+}
+function disableAlert(key){ const a=alerts[key]; a.active=false; a.arrived=false; setStatus(key,'Off',null); saveAlertPrefs(); stopWatchIfIdle(); }
+alerts.origin.toggleEl.addEventListener('change', e => e.target.checked ? enableAlert('origin') : disableAlert('origin'));
+alerts.destination.toggleEl.addEventListener('change', e => e.target.checked ? enableAlert('destination') : disableAlert('destination'));
+if(anyActive()) startWatchIfNeeded();
+document.getElementById('testSoundBtn').addEventListener('click', () => {
+  const text = 'Test alert. Sound, vibration, and speech are working.';
+  playChime(); vibrate(); speak(text);
+  showBanner('Test alert', text);
+  if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+});
+</script>
+</body>
+</html>
