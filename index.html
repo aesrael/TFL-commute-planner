@@ -316,6 +316,10 @@
         <button type="button" data-day="tomorrow" class="seg-btn">Tomorrow</button>
       </div>
     </div>
+    <div class="search-row">
+      <label for="arriveBy">Arrive by</label>
+      <input type="time" id="arriveBy" value="09:50">
+    </div>
     <div class="search-help">
       Auto picks today if the arrival time is still ahead, otherwise tomorrow.
     </div>
@@ -340,6 +344,10 @@
     <div class="chip-row" id="chipRow"></div>
   </div>
 
+  <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:13px; color:var(--amber); line-height:1.5; cursor:pointer;">
+    If you drive to the station, set your <b>parking spot</b> and <b>start point</b> in Adjust assumptions so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
+  </div>
+
   <div class="fetch-note" id="statusLine"></div>
 
   <!-- Assumptions (collapsed by default, opened via chip tap) -->
@@ -349,9 +357,6 @@
       <span class="chev">▾</span>
     </div>
     <div class="panel-body">
-      <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:var(--amber); line-height:1.5;">
-        If you drive to the station, set your <b>parking spot</b> and <b>start point</b> below so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
-      </div>
       <div class="field-row">
         <div><div class="field-label" id="driveToParkingLabel">Drive to parking spot</div><div class="field-sub" id="driveToParkingSub">Home → parking spot</div></div>
         <div class="stepper-wrap">
@@ -381,10 +386,6 @@
             <button type="button" data-dir="1">+</button>
           </div>
         </div>
-      </div>
-      <div class="field-row">
-        <div><div class="field-label">Arrive by</div><div class="field-sub">Meeting or event start time</div></div>
-        <input type="time" class="time-input" id="arriveBy" value="09:50">
       </div>
       <div class="field-row">
         <div><div class="field-label">Parking spot</div><div class="field-sub">Enter a spot name to auto-calculate drive and walk times</div></div>
@@ -606,15 +607,22 @@ function syncRouteUI(){
   document.getElementById('originAlertName').textContent = `Alert at ${route.fromName || 'origin'}`;
   document.getElementById('destAlertName').textContent = `Alert at ${route.toName || 'destination'}`;
 }
+const NUDGE_THRESHOLD_M = 1000;
 function syncSetupNudge(){
   const nudge = document.getElementById('setupNudge');
-  const missingParking = route.fromId && route.toId && route.parkingLat == null;
-  nudge.style.display = missingParking ? 'block' : 'none';
-  if(missingParking && !assumptionsPanel.classList.contains('open')){
-    assumptionsPanel.classList.add('open');
-    assumptionsPanel.scrollIntoView({behavior:'smooth', block:'center'});
-  }
+  const needsNudge = route.fromId && route.toId && (route.parkingLat == null || route.parkingLat === 0);
+  if(!needsNudge){ nudge.style.display = 'none'; return; }
+  if(route.fromLat == null || route.fromLon == null){ nudge.style.display = 'block'; return; }
+  if(!('geolocation' in navigator)){ nudge.style.display = 'block'; return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    const dist = haversine(pos.coords.latitude, pos.coords.longitude, route.fromLat, route.fromLon);
+    nudge.style.display = dist > NUDGE_THRESHOLD_M ? 'block' : 'none';
+  }, () => { nudge.style.display = 'block'; }, { timeout: 8000, maximumAge: 30000 });
 }
+document.getElementById('setupNudge').addEventListener('click', () => {
+  assumptionsPanel.classList.add('open');
+  assumptionsPanel.scrollIntoView({behavior:'smooth', block:'center'});
+});
 function updateParkingLabels(){
   const spot = parkingSpotNameInput.value.trim() || 'parking spot';
   document.getElementById('driveToParkingLabel').textContent = `Drive to ${spot}`;
@@ -660,7 +668,7 @@ function applyRoutePart(side, value, id, lat, lon){
   else toInput.value = value;
   syncRouteUI();
   persistRoute();
-  if(side === 'from' && route.parkingLat != null && route.parkingLon != null){
+  if(side === 'from' && route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0){
     updateParkingWalkEstimate().then(() => scheduleCalc());
   }
   scheduleCalc();
@@ -1187,10 +1195,10 @@ autoRequestStartLocation();
 fromInput.value = route.fromName;
 toInput.value = route.toName;
 syncStationEditUI();
-if(route.startLat != null && route.startLon != null && route.parkingLat != null && route.parkingLon != null){
+if(route.startLat != null && route.startLon != null && route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0){
   updateDriveEstimate();
 }
-if(route.parkingLat != null && route.parkingLon != null){
+if(route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0){
   updateParkingWalkEstimate();
 }
 syncSetupNudge();
@@ -1266,7 +1274,7 @@ function renderChips(){
   const w = state.parkingWalkAutoMin ?? state.walkBuffer;
   const arriveBy = document.getElementById('arriveBy').value;
   const { label } = resolveArriveMoment(arriveBy);
-  const hasParking = route.parkingLat != null && route.parkingLon != null;
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
   const driveChip = hasParking ? `<div class="chip">🚗 <b>${d != null ? d+'m' : '—'}</b> drive</div>` : '';
   const walkChip = hasParking ? `<div class="chip">🚶 <b>${w != null ? w+'m' : '—'}</b> walk</div>` : '';
   document.getElementById('chipRow').innerHTML = `
@@ -1350,22 +1358,30 @@ async function runCalc(){
   resultSub.innerHTML = `Arrives <b>${route.toName}</b> ${arriveLabel} ${fmtHM(journeyArriveDate)}.${flexNote}`;
   renderChips();
 
-  renderTimeline([
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
+  const timelineStops = hasParking ? [
     {icon:'home', time:fmtHM(leaveHomeDate), label:'Leave home'},
     {icon:'car', time:fmtHM(parkArriveDate), label:'Park'},
     {icon:'walk', time:fmtHM(platformArriveDate), label:'Platform'},
     {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
     {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
-  ]);
+  ] : [
+    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
+  ];
+  renderTimeline(timelineStops);
 
-  manifestBody.innerHTML = `
+  const manifestRows = hasParking ? `
     <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveTimeAutoMin != null ? 'Auto-estimated drive' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Walk to platform, ${walkBuffer} min</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
+  ` : '';
+  manifestBody.innerHTML = `${manifestRows}
     <div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>
   `;
   manifestPanel.style.display = 'block';
+  manifestPanel.classList.add('open');
 
   if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
 }
