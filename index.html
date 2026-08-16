@@ -369,11 +369,14 @@
         </div>
       </div>
       <div class="field-row">
-        <div><div class="field-label">Traffic buffer</div><div class="field-sub">Slack for a bad morning</div></div>
-        <div class="stepper" data-target="trafficBuffer" data-step="5" data-min="0" data-max="60">
-          <button type="button" data-dir="-1">−</button>
-          <input type="number" id="trafficBufferInput" value="5" inputmode="numeric">
-          <button type="button" data-dir="1">+</button>
+        <div><div class="field-label">Traffic buffer</div><div class="field-sub">Live delay when TomTom's available</div></div>
+        <div class="stepper-wrap">
+          <button class="mode-btn" id="trafficBufferModeBtn" type="button">Edit</button>
+          <div class="stepper" data-target="trafficBuffer" data-step="5" data-min="0" data-max="60">
+            <button type="button" data-dir="-1">−</button>
+            <input type="number" id="trafficBufferInput" value="5" inputmode="numeric">
+            <button type="button" data-dir="1">+</button>
+          </div>
         </div>
       </div>
       <div class="field-row">
@@ -492,6 +495,9 @@
 
 <script>
 const TFL_BASE = 'https://api.tfl.gov.uk';
+// TomTom Routing API key — scoped to *.commute-planner (referrer-restricted in the TomTom dashboard).
+// Used for live traffic-aware drive times; falls back to OSRM (no live traffic) if this fails for any reason.
+const TOMTOM_KEY = 'wGjktwVnCBZWKKgKjyXBlUTWGnZnzOfP';
 const LS_KEYS = {
   route: 'commuter.route.v2',
   state: 'commuter.state.v2',
@@ -506,7 +512,8 @@ const LS_KEYS = {
   parkingName: 'commuter.parking.name.v2',
   parkingLat: 'commuter.parking.lat.v2',
   parkingLon: 'commuter.parking.lon.v2',
-  alerts: 'commuter.alerts.v2'
+  alerts: 'commuter.alerts.v2',
+  tomtomUsage: 'commuter.tomtom.usage.v1'
 };
 let route = {
   fromName: '', toName: '',
@@ -721,21 +728,89 @@ function formatLeadTime(diffMin){
   if(mins === 0) return `${hours}h`;
   return `${hours}h ${mins}m`;
 }
+// --- Client-side throttle for the TomTom key ---
+// Not a real security boundary (anyone with the key can call the API directly, bypassing this file
+// entirely) — this just stops accidental/naive over-calling through the app's own functions:
+// button mashing, retry loops, or someone reusing these functions from the console rather than
+// writing their own request. Real protection is the referrer restriction + quota on TomTom's side.
+const TOMTOM_MIN_INTERVAL_MS = 5000;    // stops a tight loop from burning the daily cap instantly; the daily cap below is the real limit
+const TOMTOM_DAILY_CAP = 200;           // generous for personal use, caps runaway abuse
+let tomtomLastCallAt = 0;
+function tomtomDailyUsage(){
+  const today = new Date().toISOString().slice(0,10);
+  const rec = loadJson(LS_KEYS.tomtomUsage) || { day: today, count: 0 };
+  if(rec.day !== today){ rec.day = today; rec.count = 0; }
+  return rec;
+}
+function tomtomRegisterCall(){
+  const rec = tomtomDailyUsage();
+  rec.count += 1;
+  saveJson(LS_KEYS.tomtomUsage, rec);
+  tomtomLastCallAt = Date.now();
+}
+function tomtomThrottled(){
+  if(Date.now() - tomtomLastCallAt < TOMTOM_MIN_INTERVAL_MS) return 'interval';
+  if(tomtomDailyUsage().count >= TOMTOM_DAILY_CAP) return 'daily-cap';
+  return null;
+}
+async function fetchTomTomTraffic(startLat, startLon, endLat, endLon, arriveAtISO){
+  if(!TOMTOM_KEY) throw new Error('No TomTom key');
+  const throttleReason = tomtomThrottled();
+  if(throttleReason) throw new Error(`Throttled (${throttleReason})`);
+  let url = `https://api.tomtom.com/routing/1/calculateRoute/${startLat},${startLon}:${endLat},${endLon}/json?traffic=true&travelMode=car`;
+  // arriveAt gives predictive (historical + live-blended) traffic for the actual planned moment,
+  // rather than right-now conditions — important since "day of travel" can be tomorrow.
+  if(arriveAtISO) url += `&arriveAt=${encodeURIComponent(arriveAtISO)}`;
+  url += `&key=${TOMTOM_KEY}`;
+  const data = await fetchJSONPlain(url);
+  tomtomRegisterCall();
+  const summary = data.routes && data.routes[0] && data.routes[0].summary;
+  if(!summary || !summary.travelTimeInSeconds) throw new Error('No TomTom route');
+  return {
+    driveMin: Math.max(1, Math.round(summary.travelTimeInSeconds / 60)),
+    trafficDelayMin: Math.round((summary.trafficDelayInSeconds || 0) / 60)
+  };
+}
 async function updateDriveEstimate(){
   if(route.startLat == null || route.startLon == null || route.parkingLat == null || route.parkingLon == null){
     state.driveTimeAutoMin = null;
+    state.trafficDelayAutoMin = null;
+    state.driveSource = null;
     syncAutoFields();
     persistState();
     return null;
   }
+  // Work out when we actually need to arrive at parking: the planned station arrival time,
+  // minus the walk from parking, minus the same parking grace used in the manifest breakdown.
+  const arriveByEl = document.getElementById('arriveBy');
+  let arriveAtParkingISO = null;
+  if(arriveByEl && arriveByEl.value){
+    const { target } = resolveArriveMoment(arriveByEl.value);
+    const walkMin = state.parkingWalkAutoMin ?? state.walkBuffer ?? 0;
+    const parkingGraceMin = 3; // mirrors PARKING_BUFFER_MIN used elsewhere in the manifest
+    arriveAtParkingISO = new Date(target.getTime() - (walkMin + parkingGraceMin) * 60000).toISOString();
+  }
+  // Try TomTom first for a live traffic-aware time + delay. Fall back to OSRM (static, no traffic) on any failure.
   try{
-    const url = `https://router.project-osrm.org/route/v1/driving/${route.startLon},${route.startLat};${route.parkingLon},${route.parkingLat}?overview=false&steps=false`;
-    const data = await fetchJSONPlain(url);
-    const best = data.routes && data.routes[0];
-    if(!best || !best.duration) throw new Error('No route');
-    state.driveTimeAutoMin = Math.max(1, Math.round(best.duration / 60));
+    const tt = await fetchTomTomTraffic(route.startLat, route.startLon, route.parkingLat, route.parkingLon, arriveAtParkingISO);
+    state.driveTimeAutoMin = tt.driveMin;
+    state.trafficDelayAutoMin = tt.trafficDelayMin;
+    state.driveSource = 'tomtom';
   }catch(e){
-    state.driveTimeAutoMin = null;
+    const wasThrottled = /Throttled/.test(e.message || '');
+    try{
+      const url = `https://router.project-osrm.org/route/v1/driving/${route.startLon},${route.startLat};${route.parkingLon},${route.parkingLat}?overview=false&steps=false`;
+      const data = await fetchJSONPlain(url);
+      const best = data.routes && data.routes[0];
+      if(!best || !best.duration) throw new Error('No route');
+      state.driveTimeAutoMin = Math.max(1, Math.round(best.duration / 60));
+      state.trafficDelayAutoMin = null;
+      state.driveSource = wasThrottled ? 'osrm-throttled' : 'osrm';
+    }catch(e2){
+      state.driveTimeAutoMin = null;
+      state.trafficDelayAutoMin = null;
+      state.driveSource = null;
+    }
   }
   syncAutoFields();
   persistState();
@@ -929,19 +1004,22 @@ const privacyNote = document.getElementById('privacyNote');
 infoLink.addEventListener('click', () => privacyNote.classList.toggle('open'));
 
 /* ---------- Steppers (real inline inputs, no prompt()) ---------- */
-const state = { driveTime: 0, trafficBuffer: 5, walkBuffer: 0, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null, parkingWalkLong: false };
+const state = { driveTime: 0, trafficBuffer: 5, walkBuffer: 0, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null, parkingWalkLong: false, trafficDelayAutoMin: null, driveSource: null };
 const savedState = loadJson(LS_KEYS.state);
 if(savedState) Object.assign(state, savedState);
 if(!Number.isFinite(state.driveTimeAutoMin)) state.driveTimeAutoMin = null;
 if(!Number.isFinite(state.parkingWalkAutoMin)) state.parkingWalkAutoMin = null;
+if(!Number.isFinite(state.trafficDelayAutoMin)) state.trafficDelayAutoMin = null;
 const driveTimeInput = document.getElementById('driveTimeInput');
 const walkBufferInput = document.getElementById('walkBufferInput');
 const trafficBufferInput = document.getElementById('trafficBufferInput');
+const trafficBufferModeBtn = document.getElementById('trafficBufferModeBtn');
 const flexMinInput = document.getElementById('flexMinInput');
 const driveTimeModeBtn = document.getElementById('driveTimeModeBtn');
 const walkBufferModeBtn = document.getElementById('walkBufferModeBtn');
 let driveTimeManualMode = false;
 let walkBufferManualMode = false;
+let trafficBufferManualMode = false;
 const announceToggle = document.getElementById('announceToggle');
 const announceStatus = document.getElementById('announceStatus');
 const savedVoice = loadString(LS_KEYS.voice);
@@ -956,21 +1034,34 @@ function persistState(){
 function autoValueFor(target){
   if(target === 'driveTime') return state.driveTimeAutoMin;
   if(target === 'walkBuffer') return state.parkingWalkAutoMin;
+  if(target === 'trafficBuffer') return state.trafficDelayAutoMin;
   return null;
 }
 function manualModeFor(target){
   if(target === 'driveTime') return driveTimeManualMode;
   if(target === 'walkBuffer') return walkBufferManualMode;
+  if(target === 'trafficBuffer') return trafficBufferManualMode;
   return true;
 }
 function setManualMode(target, manual){
   if(target === 'driveTime') driveTimeManualMode = manual;
   if(target === 'walkBuffer') walkBufferManualMode = manual;
+  if(target === 'trafficBuffer') trafficBufferManualMode = manual;
   syncAutoField(target);
 }
+function inputElFor(target){
+  if(target === 'driveTime') return driveTimeInput;
+  if(target === 'walkBuffer') return walkBufferInput;
+  if(target === 'trafficBuffer') return trafficBufferInput;
+}
+function modeBtnFor(target){
+  if(target === 'driveTime') return driveTimeModeBtn;
+  if(target === 'walkBuffer') return walkBufferModeBtn;
+  if(target === 'trafficBuffer') return trafficBufferModeBtn;
+}
 function syncAutoField(target){
-  const inputEl = target === 'driveTime' ? driveTimeInput : walkBufferInput;
-  const modeBtn = target === 'driveTime' ? driveTimeModeBtn : walkBufferModeBtn;
+  const inputEl = inputElFor(target);
+  const modeBtn = modeBtnFor(target);
   const auto = autoValueFor(target);
   const manualMode = manualModeFor(target);
   modeBtn.hidden = auto == null;
@@ -987,6 +1078,7 @@ function syncAutoField(target){
 function syncAutoFields(){
   syncAutoField('driveTime');
   syncAutoField('walkBuffer');
+  syncAutoField('trafficBuffer');
 }
 document.querySelectorAll('.stepper').forEach(stepper => {
   const target = stepper.dataset.target;
@@ -1026,12 +1118,24 @@ walkBufferModeBtn.addEventListener('click', () => {
   setManualMode('walkBuffer', !manualModeFor('walkBuffer'));
   scheduleCalc();
 });
+trafficBufferModeBtn.addEventListener('click', () => {
+  if(autoValueFor('trafficBuffer') == null) return;
+  setManualMode('trafficBuffer', !manualModeFor('trafficBuffer'));
+  scheduleCalc();
+});
 syncAutoFields();
+let driveEstimateRefreshTimer = null;
+function scheduleDriveEstimateRefresh(){
+  if(route.parkingLat == null || route.startLat == null) return; // nothing to refresh yet
+  clearTimeout(driveEstimateRefreshTimer);
+  driveEstimateRefreshTimer = setTimeout(() => { updateDriveEstimate().then(() => scheduleCalc()); }, 600);
+}
 document.getElementById('arriveBy').addEventListener('change', scheduleCalc);
 const savedArriveBy = loadString(LS_KEYS.arriveBy);
 if(savedArriveBy) document.getElementById('arriveBy').value = savedArriveBy;
 document.getElementById('arriveBy').addEventListener('change', () => {
   saveString(LS_KEYS.arriveBy, document.getElementById('arriveBy').value);
+  scheduleDriveEstimateRefresh(); // arrive time shifts the predictive traffic window
 });
 const travelDaySeg = document.getElementById('travelDaySeg');
 const savedTravelDay = loadString(LS_KEYS.travelDay) || 'auto';
@@ -1045,6 +1149,7 @@ travelDaySeg.addEventListener('click', e => {
   saveString(LS_KEYS.travelDay, btn.dataset.day);
   renderChips();
   scheduleCalc();
+  scheduleDriveEstimateRefresh(); // today vs tomorrow also shifts the predictive traffic window
 });
 tflAppIdInput.addEventListener('change', () => saveString(LS_KEYS.appId, tflAppIdInput.value.trim()));
 tflAppKeyInput.addEventListener('change', () => saveString(LS_KEYS.appKey, tflAppKeyInput.value.trim()));
@@ -1398,7 +1503,7 @@ async function runCalc(){
   renderTimeline(timelineStops);
 
   const manifestRows = hasParking ? `
-    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveTimeAutoMin != null ? 'Auto-estimated drive' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveSource === 'tomtom' ? 'Traffic-aware via TomTom (for your planned arrival time)' : state.driveSource === 'osrm' ? 'Static route via OSRM (no live traffic)' : state.driveSource === 'osrm-throttled' ? 'Static route via OSRM (traffic check rate-limited)' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
