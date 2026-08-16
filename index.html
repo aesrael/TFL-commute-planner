@@ -345,7 +345,7 @@
   </div>
 
   <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:13px; color:var(--amber); line-height:1.5; cursor:pointer;">
-    If you drive to the station, set your <b>parking spot</b> and <b>start point</b> in Adjust assumptions below so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
+    If you drive to the station, set your <b>parking spot</b> and <b>start point</b> below so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
   </div>
 
   <div class="fetch-note" id="statusLine"></div>
@@ -1344,10 +1344,11 @@ async function runCalc(){
     statusLine.classList.add('error');
   }
 
-  const totalLeadMin = driveTime + trafficBuffer + walkBuffer;
+  const PARKING_BUFFER_MIN = 2;
+  const totalLeadMin = driveTime + trafficBuffer + PARKING_BUFFER_MIN + walkBuffer;
   const leaveHomeDate = addMinutes(journeyDepartDate, -totalLeadMin);
   const parkArriveDate = addMinutes(leaveHomeDate, driveTime + trafficBuffer);
-  const platformArriveDate = addMinutes(parkArriveDate, walkBuffer);
+  const platformArriveDate = addMinutes(parkArriveDate, PARKING_BUFFER_MIN + walkBuffer);
 
   let flexNote = '';
   if(live && flexMin > 0){
@@ -1383,7 +1384,7 @@ async function runCalc(){
 
   const manifestRows = hasParking ? `
     <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveTimeAutoMin != null ? 'Auto-estimated drive' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Walk to platform, ${walkBuffer} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
   manifestBody.innerHTML = `${manifestRows}
