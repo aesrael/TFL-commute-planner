@@ -562,9 +562,11 @@ if(savedAppKey) tflAppKeyInput.value = savedAppKey;
 startPointNameInput.value = loadString(LS_KEYS.startName);
 route.startLat = numOrNull(loadString(LS_KEYS.startLat));
 route.startLon = numOrNull(loadString(LS_KEYS.startLon));
+if(route.startLat === 0 && route.startLon === 0){ route.startLat = null; route.startLon = null; }
 parkingSpotNameInput.value = loadString(LS_KEYS.parkingName);
 route.parkingLat = numOrNull(loadString(LS_KEYS.parkingLat));
 route.parkingLon = numOrNull(loadString(LS_KEYS.parkingLon));
+if(route.parkingLat === 0 && route.parkingLon === 0){ route.parkingLat = null; route.parkingLon = null; }
 
 const ICONS = {
   home: '<path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/>',
@@ -647,9 +649,10 @@ function syncParkingUI(){
   updateParkingLabels();
 }
 function syncStartUI(){
-  startPointStatus.textContent = route.startLat == null || route.startLon == null
-    ? 'No saved location yet'
-    : `Saved location: ${route.startLat.toFixed(5)}, ${route.startLon.toFixed(5)}`;
+  const valid = route.startLat != null && route.startLon != null && route.startLat !== 0 && route.startLon !== 0;
+  startPointStatus.textContent = valid
+    ? `Saved location: ${route.startLat.toFixed(5)}, ${route.startLon.toFixed(5)}`
+    : 'No saved location yet';
 }
 function persistStart(){
   saveString(LS_KEYS.startName, startPointNameInput.value.trim());
@@ -742,7 +745,7 @@ let startLocationPrompted = false;
 async function autoRequestStartLocation(){
   if(startLocationPrompted) return;
   startLocationPrompted = true;
-  if(route.startLat != null && route.startLon != null) return;
+  if(route.startLat != null && route.startLon != null && route.startLat !== 0 && route.startLon !== 0) return;
   if(!('geolocation' in navigator)) return;
   try{
     const pos = await new Promise((resolve, reject) => {
@@ -810,14 +813,18 @@ async function geocodeParkingSpot(query){
   if(!q) return null;
   const direct = parseLatLon(q);
   if(direct) return direct;
-  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
-  const data = await fetchJSONPlain(url);
-  const place = Array.isArray(data) ? data[0] : null;
-  if(!place) return null;
-  const lat = Number(place.lat);
-  const lon = Number(place.lon);
-  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon, label: place.display_name || q };
+  try{
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+    const data = await fetchJSONPlain(url);
+    const place = Array.isArray(data) ? data[0] : null;
+    if(!place) return null;
+    const lat = Number(place.lat);
+    const lon = Number(place.lon);
+    if(!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon, label: place.display_name || q };
+  }catch(e){
+    return null;
+  }
 }
 async function updateParkingWalkEstimate(){
   if(route.parkingLat == null || route.parkingLon == null || route.fromLat == null || route.fromLon == null){
@@ -832,7 +839,9 @@ async function updateParkingWalkEstimate(){
     const data = await fetchJSONPlain(url);
     const best = data.routes && data.routes[0];
     if(!best || !best.duration) throw new Error('No route');
-    state.parkingWalkAutoMin = Math.max(1, Math.round(best.duration / 60));
+    const walkMin = Math.round(best.duration / 60);
+    state.parkingWalkAutoMin = Math.max(1, walkMin);
+    state.parkingWalkLong = walkMin > 20;
   }catch(e){
     state.parkingWalkAutoMin = null;
   }
@@ -920,7 +929,7 @@ const privacyNote = document.getElementById('privacyNote');
 infoLink.addEventListener('click', () => privacyNote.classList.toggle('open'));
 
 /* ---------- Steppers (real inline inputs, no prompt()) ---------- */
-const state = { driveTime: 0, trafficBuffer: 5, walkBuffer: 0, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null };
+const state = { driveTime: 0, trafficBuffer: 5, walkBuffer: 0, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null, parkingWalkLong: false };
 const savedState = loadJson(LS_KEYS.state);
 if(savedState) Object.assign(state, savedState);
 if(!Number.isFinite(state.driveTimeAutoMin)) state.driveTimeAutoMin = null;
@@ -1145,15 +1154,21 @@ async function resolveParkingFromInput(){
 }
 startPointNameInput.addEventListener('input', () => {
   clearTimeout(startLookupTimer);
-  startLookupTimer = setTimeout(resolveStartFromInput, 700);
+  startLookupTimer = setTimeout(resolveStartFromInput, 1500);
 });
-startPointNameInput.addEventListener('change', resolveStartFromInput);
+startPointNameInput.addEventListener('change', () => {
+  clearTimeout(startLookupTimer);
+  startLookupTimer = setTimeout(resolveStartFromInput, 1500);
+});
 parkingSpotNameInput.addEventListener('input', () => {
   updateParkingLabels();
   clearTimeout(parkingLookupTimer);
-  parkingLookupTimer = setTimeout(resolveParkingFromInput, 700);
+  parkingLookupTimer = setTimeout(resolveParkingFromInput, 1500);
 });
-parkingSpotNameInput.addEventListener('change', resolveParkingFromInput);
+parkingSpotNameInput.addEventListener('change', () => {
+  clearTimeout(parkingLookupTimer);
+  parkingLookupTimer = setTimeout(resolveParkingFromInput, 1500);
+});
 useCurrentParkingBtn.addEventListener('click', async () => {
   if(!('geolocation' in navigator)){
     parkingSpotStatus.textContent = 'Location not supported here';
@@ -1344,7 +1359,7 @@ async function runCalc(){
     statusLine.classList.add('error');
   }
 
-  const PARKING_BUFFER_MIN = 2;
+  const PARKING_BUFFER_MIN = 3;
   const totalLeadMin = driveTime + trafficBuffer + PARKING_BUFFER_MIN + walkBuffer;
   const leaveHomeDate = addMinutes(journeyDepartDate, -totalLeadMin);
   const parkArriveDate = addMinutes(leaveHomeDate, driveTime + trafficBuffer);
@@ -1384,7 +1399,7 @@ async function runCalc(){
 
   const manifestRows = hasParking ? `
     <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveTimeAutoMin != null ? 'Auto-estimated drive' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
   manifestBody.innerHTML = `${manifestRows}
