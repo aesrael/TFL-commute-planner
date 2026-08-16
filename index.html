@@ -349,6 +349,9 @@
       <span class="chev">▾</span>
     </div>
     <div class="panel-body">
+      <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:10px; padding:12px 14px; margin-bottom:14px; font-size:13px; color:var(--amber); line-height:1.5;">
+        If you drive to the station, set your <b>parking spot</b> and <b>start point</b> below so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
+      </div>
       <div class="field-row">
         <div><div class="field-label" id="driveToParkingLabel">Drive to parking spot</div><div class="field-sub" id="driveToParkingSub">Home → parking spot</div></div>
         <div class="stepper-wrap">
@@ -595,7 +598,6 @@ function openStationPanel(editing = false){
   searchPanel.classList.add('open');
   stationEditMode = editing || !route.fromName || !route.toName;
   syncStationEditUI();
-  if(stationEditMode) setTimeout(() => fromInput.focus(), 0);
 }
 
 function syncRouteUI(){
@@ -603,6 +605,15 @@ function syncRouteUI(){
   document.getElementById('routeTo').textContent = route.toName || 'Set destination';
   document.getElementById('originAlertName').textContent = `Alert at ${route.fromName || 'origin'}`;
   document.getElementById('destAlertName').textContent = `Alert at ${route.toName || 'destination'}`;
+}
+function syncSetupNudge(){
+  const nudge = document.getElementById('setupNudge');
+  const missingParking = route.fromId && route.toId && route.parkingLat == null;
+  nudge.style.display = missingParking ? 'block' : 'none';
+  if(missingParking && !assumptionsPanel.classList.contains('open')){
+    assumptionsPanel.classList.add('open');
+    assumptionsPanel.scrollIntoView({behavior:'smooth', block:'center'});
+  }
 }
 function updateParkingLabels(){
   const spot = parkingSpotNameInput.value.trim() || 'parking spot';
@@ -653,6 +664,7 @@ function applyRoutePart(side, value, id, lat, lon){
     updateParkingWalkEstimate().then(() => scheduleCalc());
   }
   scheduleCalc();
+  syncSetupNudge();
 }
 function applyExactText(side, value){
   applyRoutePart(side, value, value, null, null);
@@ -890,7 +902,7 @@ const privacyNote = document.getElementById('privacyNote');
 infoLink.addEventListener('click', () => privacyNote.classList.toggle('open'));
 
 /* ---------- Steppers (real inline inputs, no prompt()) ---------- */
-const state = { driveTime: 32, trafficBuffer: 5, walkBuffer: 10, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null };
+const state = { driveTime: 0, trafficBuffer: 5, walkBuffer: 0, flexMin: 15, driveTimeAutoMin: null, parkingWalkAutoMin: null };
 const savedState = loadJson(LS_KEYS.state);
 if(savedState) Object.assign(state, savedState);
 if(!Number.isFinite(state.driveTimeAutoMin)) state.driveTimeAutoMin = null;
@@ -1181,6 +1193,7 @@ if(route.startLat != null && route.startLon != null && route.parkingLat != null 
 if(route.parkingLat != null && route.parkingLon != null){
   updateParkingWalkEstimate();
 }
+syncSetupNudge();
 
 /* ---------- Journey lookup ---------- */
 async function getJourney(arriveByHHMM){
@@ -1248,14 +1261,18 @@ function renderTimeline(stops){
 }
 
 function renderChips(){
-  const d = state.driveTimeAutoMin ?? state.driveTime, t = state.trafficBuffer, w = state.parkingWalkAutoMin ?? state.walkBuffer;
-  const effectiveWalk = state.parkingWalkAutoMin ?? w;
+  const d = state.driveTimeAutoMin ?? state.driveTime;
+  const t = state.trafficBuffer;
+  const w = state.parkingWalkAutoMin ?? state.walkBuffer;
   const arriveBy = document.getElementById('arriveBy').value;
   const { label } = resolveArriveMoment(arriveBy);
+  const hasParking = route.parkingLat != null && route.parkingLon != null;
+  const driveChip = hasParking ? `<div class="chip">🚗 <b>${d != null ? d+'m' : '—'}</b> drive</div>` : '';
+  const walkChip = hasParking ? `<div class="chip">🚶 <b>${w != null ? w+'m' : '—'}</b> walk</div>` : '';
   document.getElementById('chipRow').innerHTML = `
-    <div class="chip">🚗 <b>${d}m</b> drive</div>
+    ${driveChip}
     <div class="chip">🚦 <b>+${t}m</b> buffer</div>
-    <div class="chip">🚶 <b>${effectiveWalk}m</b> walk</div>
+    ${walkChip}
     <div class="chip">🎯 <b>${label} ${arriveBy}</b></div>
   `;
 }
@@ -1352,7 +1369,11 @@ async function runCalc(){
 
   if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
 }
-document.getElementById('calcBtn').addEventListener('click', runCalc);
+document.getElementById('calcBtn').addEventListener('click', () => {
+  assumptionsPanel.classList.remove('open');
+  document.querySelector('.hero').scrollIntoView({behavior:'smooth', block:'start'});
+  runCalc();
+});
 
 /* run once automatically on load with defaults */
 renderChips();
