@@ -77,12 +77,19 @@
   .search-head{display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px;}
   .search-title{font-family:'Oswald',sans-serif; font-size:12.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--text); font-weight:600;}
   .search-head-sub{font-size:11.5px; color:var(--text-faint); margin-top:4px; line-height:1.4;}
-  .edit-btn{
-    flex:none; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--amber);
-    border-radius:10px; padding:9px 12px; font-size:11.5px; font-weight:600; letter-spacing:.04em;
-    text-transform:uppercase; cursor:pointer;
-  }
-  .edit-btn:active{border-color:var(--amber-dim);}
+.edit-btn{
+  flex:none; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--amber);
+  border-radius:10px; padding:9px 12px; font-size:11.5px; font-weight:600; letter-spacing:.04em;
+  text-transform:uppercase; cursor:pointer;
+}
+.edit-btn:active{border-color:var(--amber-dim);}
+.search-head-btns{display:flex; gap:6px; flex:none;}
+.swap-btn{
+  flex:none; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--text-dim);
+  border-radius:10px; padding:8px 10px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.swap-btn svg{width:16px; height:16px;}
+.swap-btn:active{border-color:var(--amber-dim); color:var(--amber);}
   .search-row{display:flex; flex-direction:column; gap:8px; margin-bottom:12px;}
   .search-row:last-of-type{margin-bottom:0;}
   .search-row label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim);}
@@ -152,14 +159,16 @@
   .alt-label{font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.16em; color:var(--text-faint); text-transform:uppercase; margin-bottom:8px;}
   .alt-chips{display:flex; flex-wrap:wrap; gap:6px; justify-content:center; position:relative;}
   .alt-chip{
-    background:var(--panel-sunken); border:1px solid var(--hairline); border-radius:14px; padding:5px 10px;
+    background:var(--panel-sunken); border:1px solid var(--hairline); border-radius:14px; padding:6px 10px;
     font-size:11.5px; color:var(--text-dim); font-family:'Space Mono',monospace; cursor:pointer;
-    transition: border-color .15s, background .15s;
+    transition: border-color .15s, background .15s; text-align:center;
   }
   .alt-chip:hover{border-color:var(--amber-dim);}
   .alt-chip.active{border-color:var(--amber); background:rgba(255,176,32,0.08); color:var(--text);}
   .alt-chip .rank{font-size:9px; letter-spacing:.06em; text-transform:uppercase; margin-left:4px; color:var(--text-faint);}
   .alt-chip.active .rank{color:var(--amber-dim);}
+  .alt-train{display:block; font-size:9.5px; color:var(--text-faint); margin-top:2px; letter-spacing:.02em;}
+  .alt-chip.active .alt-train{color:var(--amber-dim);}
   .alt-chip.selected{animation: altSelect .3s ease;}
   @keyframes altSelect{ 0%{transform:scale(1)} 50%{transform:scale(0.92)} 100%{transform:scale(1)} }
   .alt-more{
@@ -361,7 +370,12 @@
         <div class="search-title">Train stations</div>
         <div class="search-head-sub" id="stationEditHint">Computed values show first. Tap Edit to change them.</div>
       </div>
-      <button class="edit-btn" id="editStationsBtn" type="button">Edit</button>
+      <div class="search-head-btns">
+        <button class="swap-btn" id="swapStationsBtn" type="button" title="Swap stations">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 12l-3-3m3 3l3-3"/><path d="M17 8v12m0-12l3 3m-3-3l-3 3"/></svg>
+        </button>
+        <button class="edit-btn" id="editStationsBtn" type="button">Edit</button>
+      </div>
     </div>
     <div class="search-row">
       <label for="fromInput">Origin station</label>
@@ -511,6 +525,17 @@
       <div class="timeline-wrap">
         <div class="timeline-track" id="timelineTrack"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- Return journey -->
+  <div class="panel" id="returnPanel" style="display:none;">
+    <div class="panel-header" id="returnHeader">
+      <h2>Return journey</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body">
+      <div id="returnBody"></div>
     </div>
   </div>
 
@@ -1056,7 +1081,19 @@ editStationsBtn.addEventListener('click', e => {
   }else{
     fromResults.innerHTML = '';
     toResults.innerHTML = '';
+    searchPanel.classList.remove('open');
   }
+});
+document.getElementById('swapStationsBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  const tmpName = route.fromName, tmpId = route.fromId, tmpLat = route.fromLat, tmpLon = route.fromLon;
+  route.fromName = route.toName; route.fromId = route.toId; route.fromLat = route.toLat; route.fromLon = route.toLon;
+  route.toName = tmpName; route.toId = tmpId; route.toLat = tmpLat; route.toLon = tmpLon;
+  fromInput.value = route.fromName;
+  toInput.value = route.toName;
+  syncRouteUI();
+  persistRoute();
+  scheduleCalc();
 });
 fromInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
 toInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
@@ -1073,6 +1110,7 @@ const assumptionsPanel = document.getElementById('assumptionsPanel');
 wirePanelToggle('assumptionsHeader', assumptionsPanel);
 wirePanelToggle('timelineHeader', document.getElementById('timelinePanel'));
 wirePanelToggle('manifestHeader', document.getElementById('manifestPanel'));
+wirePanelToggle('returnHeader', document.getElementById('returnPanel'));
 
 document.getElementById('chipRow').addEventListener('click', () => {
   assumptionsPanel.classList.add('open');
@@ -1574,8 +1612,10 @@ function renderAlternatives(alts){
   altChips.innerHTML = visible.map((a, i) => {
     const labelTag = a.label ? `<span class="rank"> ${a.label}</span>` : '';
     const activeCls = (i === 0 && a.isPrimary) ? ' active' : '';
+    const trainTime = a.journeyDepartDate ? fmtHM(a.journeyDepartDate) : '';
+    const trainSub = trainTime ? `<span class="alt-train">🚆 ${trainTime}</span>` : '';
     return `<button class="alt-chip${activeCls}" data-alt-idx="${i}">
-      ${a.leaveHHMM}${labelTag}
+      ${a.leaveHHMM}${labelTag}${trainSub}
     </button>`;
   }).join('');
 
@@ -1584,8 +1624,10 @@ function renderAlternatives(alts){
 
     altPopover.innerHTML = overflow.map((a, i) => {
       const labelTag = a.label ? `<span class="rank"> ${a.label}</span>` : '';
+      const trainTime = a.journeyDepartDate ? fmtHM(a.journeyDepartDate) : '';
+      const trainSub = trainTime ? `<span class="alt-train">🚆 ${trainTime}</span>` : '';
       return `<button class="alt-chip" data-alt-idx="${visible.length + i}">
-        ${a.leaveHHMM}${labelTag}
+        ${a.leaveHHMM}${labelTag}${trainSub}
       </button>`;
     }).join('');
 
@@ -1767,10 +1809,105 @@ const resultSub = document.getElementById('resultSub');
 const manifestPanel = document.getElementById('manifestPanel');
 const manifestBody = document.getElementById('manifestBody');
 
+/* ---------- Return journey ---------- */
+let returnGen = 0;
+async function renderReturnJourney(outboundArriveDate, totalLeadMin){
+  const returnPanel = document.getElementById('returnPanel');
+  const returnBody = document.getElementById('returnBody');
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
+
+  if(!route.fromId || !route.toId || !hasParking){
+    returnPanel.style.display = 'none';
+    returnPanel.classList.remove('open');
+    return;
+  }
+
+  const returnArrive = addMinutes(outboundArriveDate, 10);
+  const returnArriveHHMM = fmtHM(returnArrive);
+
+  const gen = ++returnGen;
+  try{
+    const origFrom = route.fromId, origTo = route.toId;
+    const origFromLat = route.fromLat, origFromLon = route.fromLon;
+    const origToLat = route.toLat, origToLon = route.toLon;
+    const origFromName = route.fromName, origToName = route.toName;
+
+    route.fromId = origTo; route.toId = origFrom;
+    route.fromLat = origToLat; route.fromLon = origToLon;
+    route.toLat = origFromLat; route.toLon = origFromLon;
+    route.fromName = origToName; route.toName = origFromName;
+
+    const journey = await getJourney(returnArriveHHMM);
+
+    route.fromId = origFrom; route.toId = origTo;
+    route.fromLat = origFromLat; route.fromLon = origFromLon;
+    route.toLat = origToLat; route.toLon = origToLon;
+    route.fromName = origFromName; route.toName = origToName;
+
+    if(gen !== returnGen) return;
+
+    const jDepart = new Date(journey.startDateTime);
+    const jArrive = new Date(journey.arrivalDateTime);
+    const jDuration = journey.duration;
+
+    const walkBuf = state.parkingWalkAutoMin ?? state.walkBuffer;
+    const driveT = state.driveTimeAutoMin ?? state.driveTime;
+    const trafficBuf = state.trafficBuffer;
+    const PARKING_BUFFER_MIN = 3;
+
+    const leaveDestDate = addMinutes(jDepart, -(walkBuf + PARKING_BUFFER_MIN));
+    const walkToCarDate = addMinutes(jArrive, walkBuf);
+    const arriveHomeDate = addMinutes(walkToCarDate, driveT + trafficBuf);
+
+    const legs = journey.legs || [];
+    const detail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
+
+    const retTimeline = [
+      {icon:'flag', time:fmtHM(leaveDestDate), label:`Leave ${route.fromName}`},
+      {icon:'train', time:fmtHM(jDepart), label:route.fromName},
+      {icon:'train', time:fmtHM(jArrive), label:route.toName},
+      {icon:'walk', time:fmtHM(walkToCarDate), label:'Walk to car'},
+      {icon:'home', time:fmtHM(arriveHomeDate), label:'Home'}
+    ];
+
+    const returnTrackId = 'returnTrack';
+    returnBody.innerHTML = `
+      <div class="timeline-wrap">
+        <div class="timeline-track" id="${returnTrackId}"></div>
+      </div>
+      <div class="m-row"><div class="m-time">${fmtHM(leaveDestDate)}</div><div class="m-text">Leave ${route.fromName}<span class="m-note">Walk ${walkBuf} min + ${PARKING_BUFFER_MIN} min grace</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
+    `;
+
+    const retTrack = document.getElementById(returnTrackId);
+    if(retTrack){
+      retTrack.innerHTML = '';
+      retTimeline.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 't-stop';
+        div.innerHTML = `<div class="t-icon">${iconSVG(s.icon)}</div><div class="t-time">${s.time}</div><div class="t-label">${s.label}</div>`;
+        retTrack.appendChild(div);
+      });
+    }
+
+    returnPanel.style.display = 'block';
+    returnPanel.classList.add('open');
+  }catch(e){
+    if(gen !== returnGen) return;
+    returnPanel.style.display = 'none';
+    returnPanel.classList.remove('open');
+  }
+}
+
 async function runCalc(){
   renderFlaps('----', true);
   statusLine.textContent = '';
   statusLine.className = 'fetch-note';
+  document.getElementById('returnPanel').style.display = 'none';
+  document.getElementById('returnPanel').classList.remove('open');
 
   if(!route.fromId || !route.toId){
     statusLine.textContent = 'Enter your origin and destination to calculate your commute.';
@@ -1863,6 +2000,15 @@ async function runCalc(){
       .catch(() => { if(gen === altGen) renderAlternatives([]); });
   } else {
     renderAlternatives([]);
+  }
+
+  // Return journey (non-blocking)
+  if(live && hasParking){
+    renderReturnJourney(journeyArriveDate, totalLeadMin);
+  } else {
+    const rp = document.getElementById('returnPanel');
+    rp.style.display = 'none';
+    rp.classList.remove('open');
   }
 }
 document.getElementById('calcBtn').addEventListener('click', () => {
