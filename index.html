@@ -146,6 +146,39 @@
   .chip:active{border-color:var(--amber-dim);}
   .chip b{color:var(--text); font-weight:600;}
 
+  /* ---------- Other times available ---------- */
+  .alt-row{display:none; margin-top:14px; text-align:center;}
+  .alt-row.has-alts{display:block;}
+  .alt-label{font-family:'Oswald',sans-serif; font-size:10px; letter-spacing:.16em; color:var(--text-faint); text-transform:uppercase; margin-bottom:8px;}
+  .alt-chips{display:flex; flex-wrap:wrap; gap:6px; justify-content:center; position:relative;}
+  .alt-chip{
+    background:var(--panel-sunken); border:1px solid var(--hairline); border-radius:14px; padding:5px 10px;
+    font-size:11.5px; color:var(--text-dim); font-family:'Space Mono',monospace; cursor:pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .alt-chip:hover{border-color:var(--amber-dim);}
+  .alt-chip.active{border-color:var(--amber); background:rgba(255,176,32,0.08); color:var(--text);}
+  .alt-chip .rank{font-size:9px; letter-spacing:.06em; text-transform:uppercase; margin-left:4px; color:var(--text-faint);}
+  .alt-chip.active .rank{color:var(--amber-dim);}
+  .alt-chip.selected{animation: altSelect .3s ease;}
+  @keyframes altSelect{ 0%{transform:scale(1)} 50%{transform:scale(0.92)} 100%{transform:scale(1)} }
+  .alt-more{
+    background:transparent; border:1px dashed var(--hairline); border-radius:14px; padding:5px 10px;
+    font-size:11.5px; color:var(--text-faint); font-family:'Space Mono',monospace; cursor:pointer;
+  }
+  .alt-more:hover{border-color:var(--amber-dim); color:var(--text-dim);}
+  .alt-popover{
+    position:absolute; top:100%; left:50%; transform:translateX(-50%) translateY(-4px);
+    background:var(--panel); border:1px solid var(--hairline); border-radius:12px;
+    padding:8px; z-index:20; min-width:160px; margin-top:6px;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+    opacity:0; visibility:hidden; pointer-events:none;
+    transition: opacity .15s ease, transform .15s ease, visibility .15s;
+  }
+  .alt-popover.open{opacity:1; visibility:visible; pointer-events:auto; transform:translateX(-50%) translateY(0);}
+  .alt-popover .alt-chip{display:block; width:100%; text-align:left; border-radius:8px; margin-bottom:4px;}
+  .alt-popover .alt-chip:last-child{margin-bottom:0;}
+
   .panel{background:var(--panel); border:1px solid var(--hairline); border-radius:16px; margin-bottom:12px; overflow:hidden;}
   .panel-header{
     display:flex; align-items:center; justify-content:space-between; padding:16px 18px; cursor:pointer;
@@ -161,6 +194,38 @@
   .field-row:first-child{border-top:none;}
   .field-label{font-size:14.5px; color:var(--text); font-weight:500;}
   .field-sub{font-size:11.5px; color:var(--text-dim); margin-top:2px;}
+
+  /* Parking override toggle */
+  .override-toggle{
+    display:flex; align-items:center; gap:8px; padding:10px 0; cursor:pointer;
+    font-size:12px; color:var(--text-faint); user-select:none;
+  }
+  .override-toggle input[type="checkbox"]{
+    appearance:none; -webkit-appearance:none; width:32px; height:18px;
+    background:var(--panel-sunken); border:1px solid var(--hairline); border-radius:9px;
+    position:relative; cursor:pointer; transition: background .2s, border-color .2s; flex:none;
+  }
+  .override-toggle input[type="checkbox"]::after{
+    content:''; position:absolute; top:2px; left:2px; width:12px; height:12px;
+    background:var(--text-faint); border-radius:50%; transition: transform .2s, background .2s;
+  }
+  .override-toggle input[type="checkbox"]:checked{
+    background:rgba(255,176,32,0.15); border-color:var(--amber-dim);
+  }
+  .override-toggle input[type="checkbox"]:checked::after{
+    transform:translateX(14px); background:var(--amber);
+  }
+  .override-toggle:hover{color:var(--text-dim);}
+
+  .override-controls{
+    max-height:0; overflow:hidden; opacity:0;
+    transition: max-height .25s ease, opacity .2s ease, margin .2s ease;
+    margin-top:0;
+  }
+  .override-controls.open{
+    max-height:400px; opacity:1; margin-top:4px;
+  }
+
   .stepper-wrap{display:flex; align-items:center; gap:8px; flex:none;}
   .mode-btn{
     border:1px solid var(--hairline); background:var(--panel-raised); color:var(--amber);
@@ -342,6 +407,12 @@
     <div class="hero-sub" id="resultSub">Enter your origin and destination to get started.</div>
 
     <div class="chip-row" id="chipRow"></div>
+
+    <div class="alt-row" id="altRow">
+      <div class="alt-label">Other times available</div>
+      <div class="alt-chips" id="altChips"></div>
+      <div class="alt-popover" id="altPopover"></div>
+    </div>
   </div>
 
   <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:13px; color:var(--amber); line-height:1.5; cursor:pointer;">
@@ -358,48 +429,54 @@
     </div>
     <div class="panel-body">
       <div class="field-row">
-        <div><div class="field-label" id="driveToParkingLabel">Drive to parking spot</div><div class="field-sub" id="driveToParkingSub">Home → parking spot</div></div>
-        <div class="stepper-wrap">
-          <button class="mode-btn" id="driveTimeModeBtn" type="button">Edit</button>
-          <div class="stepper" data-target="driveTime" data-step="1" data-min="0" data-max="120">
-            <button type="button" data-dir="-1">−</button>
-            <input type="number" id="driveTimeInput" value="32" inputmode="numeric">
-            <button type="button" data-dir="1">+</button>
-          </div>
-        </div>
-      </div>
-      <div class="field-row">
-        <div><div class="field-label">Traffic buffer</div><div class="field-sub">Live delay when TomTom's available</div></div>
-        <div class="stepper-wrap">
-          <button class="mode-btn" id="trafficBufferModeBtn" type="button">Edit</button>
-          <div class="stepper" data-target="trafficBuffer" data-step="5" data-min="0" data-max="60">
-            <button type="button" data-dir="-1">−</button>
-            <input type="number" id="trafficBufferInput" value="5" inputmode="numeric">
-            <button type="button" data-dir="1">+</button>
-          </div>
-        </div>
-      </div>
-      <div class="field-row">
-        <div><div class="field-label">Walk from parking spot</div><div class="field-sub" id="walkFromParkingSub">Parking spot → platform</div></div>
-        <div class="stepper-wrap">
-          <button class="mode-btn" id="walkBufferModeBtn" type="button">Edit</button>
-          <div class="stepper" data-target="walkBuffer" data-step="1" data-min="0" data-max="60">
-            <button type="button" data-dir="-1">−</button>
-            <input type="number" id="walkBufferInput" value="10" inputmode="numeric">
-            <button type="button" data-dir="1">+</button>
-          </div>
-        </div>
-      </div>
-      <div class="field-row">
         <div><div class="field-label">Parking spot</div><div class="field-sub">Enter a spot name to auto-calculate drive and walk times</div></div>
         <input type="text" class="time-input parking-input" id="parkingSpotName" placeholder="Enter parking spot to auto-calculate">
       </div>
-      <div class="field-row">
+      <div class="field-row" id="parkingCoordsRow">
         <div>
           <div class="field-label">Parking coords</div>
           <div class="field-sub" id="parkingSpotStatus">No saved location yet</div>
         </div>
         <button class="test-sound-btn" id="useCurrentParkingBtn" type="button" style="width:auto; margin-top:0; padding:10px 14px;">Use current location</button>
+      </div>
+      <label class="override-toggle" id="parkingOverrideLabel">
+        <input type="checkbox" id="parkingOverrideCheck">
+        <span>Customize drive & walk times</span>
+      </label>
+      <div class="override-controls" id="parkingOverrideControls">
+        <div class="field-row">
+          <div><div class="field-label" id="driveToParkingLabel">Drive to parking spot</div><div class="field-sub" id="driveToParkingSub">Home → parking spot</div></div>
+          <div class="stepper-wrap">
+            <button class="mode-btn" id="driveTimeModeBtn" type="button">Edit</button>
+            <div class="stepper" data-target="driveTime" data-step="1" data-min="0" data-max="120">
+              <button type="button" data-dir="-1">−</button>
+              <input type="number" id="driveTimeInput" value="32" inputmode="numeric">
+              <button type="button" data-dir="1">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="field-row">
+          <div><div class="field-label">Traffic buffer</div><div class="field-sub">Live delay when TomTom's available</div></div>
+          <div class="stepper-wrap">
+            <button class="mode-btn" id="trafficBufferModeBtn" type="button">Edit</button>
+            <div class="stepper" data-target="trafficBuffer" data-step="5" data-min="0" data-max="60">
+              <button type="button" data-dir="-1">−</button>
+              <input type="number" id="trafficBufferInput" value="5" inputmode="numeric">
+              <button type="button" data-dir="1">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="field-row">
+          <div><div class="field-label">Walk from parking spot</div><div class="field-sub" id="walkFromParkingSub">Parking spot → platform</div></div>
+          <div class="stepper-wrap">
+            <button class="mode-btn" id="walkBufferModeBtn" type="button">Edit</button>
+            <div class="stepper" data-target="walkBuffer" data-step="1" data-min="0" data-max="60">
+              <button type="button" data-dir="-1">−</button>
+              <input type="number" id="walkBufferInput" value="10" inputmode="numeric">
+              <button type="button" data-dir="1">+</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="field-row">
         <div><div class="field-label">Start point</div><div class="field-sub">Home or departure point</div></div>
@@ -513,7 +590,8 @@ const LS_KEYS = {
   parkingLat: 'commuter.parking.lat.v2',
   parkingLon: 'commuter.parking.lon.v2',
   alerts: 'commuter.alerts.v2',
-  tomtomUsage: 'commuter.tomtom.usage.v1'
+  tomtomUsage: 'commuter.tomtom.usage.v1',
+  parkingOverride: 'commuter.parking.override.v1'
 };
 let route = {
   fromName: '', toName: '',
@@ -559,6 +637,8 @@ const tflAppKeyInput = document.getElementById('tflAppKey');
 const parkingSpotNameInput = document.getElementById('parkingSpotName');
 const parkingSpotStatus = document.getElementById('parkingSpotStatus');
 const useCurrentParkingBtn = document.getElementById('useCurrentParkingBtn');
+const parkingOverrideCheck = document.getElementById('parkingOverrideCheck');
+const parkingOverrideControls = document.getElementById('parkingOverrideControls');
 const startPointNameInput = document.getElementById('startPointName');
 const startPointStatus = document.getElementById('startPointStatus');
 const useCurrentStartBtn = document.getElementById('useCurrentStartBtn');
@@ -1213,6 +1293,8 @@ async function resolveParkingFromInput(){
     route.parkingLat = null;
     route.parkingLon = null;
     state.parkingWalkAutoMin = null;
+    parkingOverrideCheck.checked = false;
+    parkingOverrideControls.classList.remove('open');
     persistParking();
     scheduleCalc();
     return;
@@ -1291,6 +1373,21 @@ useCurrentParkingBtn.addEventListener('click', async () => {
     parkingSpotStatus.textContent = 'Could not read current location';
   }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 });
 });
+
+// Parking override toggle
+parkingOverrideCheck.addEventListener('change', () => {
+  const open = parkingOverrideCheck.checked;
+  parkingOverrideControls.classList.toggle('open', open);
+  saveString(LS_KEYS.parkingOverride, open ? '1' : '0');
+});
+(function restoreParkingOverride(){
+  const saved = loadString(LS_KEYS.parkingOverride);
+  if(saved === '1'){
+    parkingOverrideCheck.checked = true;
+    parkingOverrideControls.classList.add('open');
+  }
+})();
+
 useCurrentStartBtn.addEventListener('click', async () => {
   if(!('geolocation' in navigator)){
     startPointStatus.textContent = 'Location not supported here';
@@ -1356,6 +1453,248 @@ async function getJourney(arriveByHHMM){
 }
 function fmtHM(date){ return date.toTimeString().slice(0,5); }
 function addMinutes(date, mins){ return new Date(date.getTime() + mins*60000); }
+
+/* ---------- Alternatives ---------- */
+let currentAlts = [];
+let altGen = 0;
+
+function getAlternatives(arriveByHHMM, flexMin, driveTime, trafficBuffer, walkBuffer, primaryLeaveHomeMs, primaryData){
+  if(!flexMin || flexMin <= 0) return Promise.resolve([]);
+  const now = new Date();
+  const { target: arriveDate } = resolveArriveMoment(arriveByHHMM, now);
+  const PARKING_BUFFER_MIN = 3;
+  const totalLeadMin = driveTime + trafficBuffer + PARKING_BUFFER_MIN + walkBuffer;
+  const primaryArriveMs = arriveDate.getTime();
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
+  const isTomTom = state.driveSource === 'tomtom';
+
+  // Candidate arrival times: every 5 min later within flex window (skip 0 = primary)
+  const candidates = [];
+  for(let offset = 5; offset <= flexMin; offset += 5){
+    const candArrive = new Date(primaryArriveMs + offset * 60000);
+    candidates.push({ offset, arriveHHMM: fmtHM(candArrive) });
+  }
+
+  if(!candidates.length) return Promise.resolve([]);
+
+  const tflPromises = candidates.map(c => getJourney(c.arriveHHMM).then(j => ({ ...c, journey: j })).catch(() => null));
+
+  return Promise.all(tflPromises).then(results => {
+    const nowMs = Date.now();
+    const alts = [];
+
+    for(const r of results){
+      if(!r || !r.journey) continue;
+      const j = r.journey;
+      const jDepart = new Date(j.startDateTime);
+      const jArrive = new Date(j.arrivalDateTime);
+      const leaveHome = addMinutes(jDepart, -totalLeadMin);
+
+      if(leaveHome.getTime() < nowMs) continue;
+      if(jArrive.getTime() > primaryArriveMs + flexMin * 60000 + 60000) continue;
+
+      const driveDiffMin = Math.abs(leaveHome.getTime() - primaryLeaveHomeMs) / 60000;
+      const sameDay = leaveHome.toDateString() === new Date(primaryLeaveHomeMs).toDateString();
+      const canReuseTomTom = isTomTom && hasParking && sameDay && driveDiffMin <= 15;
+
+      const legs = j.legs || [];
+      const detail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
+
+      alts.push({
+        leaveHomeDate: leaveHome,
+        leaveHHMM: fmtHM(leaveHome),
+        journeyDepartDate: jDepart,
+        journeyArriveDate: jArrive,
+        journeyDurationMin: j.duration,
+        journeyDetail: detail,
+        offset: r.offset,
+        canReuseTomTom,
+        totalLeadMin,
+        rank: null
+      });
+    }
+
+    // Deduplicate by leave-home time (same train + same lead = identical plan)
+    const seen = new Set();
+    const unique = alts.filter(a => {
+      const key = a.leaveHomeDate.getTime();
+      if(seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Earliest leave-home first
+    unique.sort((a, b) => a.leaveHomeDate.getTime() - b.leaveHomeDate.getTime());
+
+    // Prepend primary plan as first option when alternatives exist
+    if(unique.length > 0 && primaryData){
+      const primary = {
+        leaveHomeDate: new Date(primaryLeaveHomeMs),
+        leaveHHMM: fmtHM(new Date(primaryLeaveHomeMs)),
+        journeyDepartDate: primaryData.journeyDepartDate,
+        journeyArriveDate: primaryData.journeyArriveDate,
+        journeyDurationMin: primaryData.journeyDurationMin,
+        journeyDetail: primaryData.journeyDetail,
+        offset: 0,
+        canReuseTomTom: true,
+        totalLeadMin: primaryData.totalLeadMin,
+        isPrimary: true,
+        label: 'current'
+      };
+      unique.unshift(primary);
+    }
+
+    unique.forEach((a, i) => {
+      if(i === 0 && !a.isPrimary) a.label = 'early bird';
+      else if(i === unique.length - 1 && unique.length > 1 && !a.isPrimary) a.label = 'relaxed';
+      else if(!a.isPrimary) a.label = '';
+    });
+    return unique;
+  });
+}
+
+function renderAlternatives(alts){
+  const altRow = document.getElementById('altRow');
+  const altChips = document.getElementById('altChips');
+  const altPopover = document.getElementById('altPopover');
+
+  currentAlts = alts || [];
+
+  if(!alts || alts.length === 0){
+    altRow.classList.remove('has-alts');
+    altChips.innerHTML = '';
+    return;
+  }
+
+  altRow.classList.add('has-alts');
+
+  const visible = alts.slice(0, 3);
+  const overflow = alts.slice(3);
+
+  altChips.innerHTML = visible.map((a, i) => {
+    const labelTag = a.label ? `<span class="rank"> ${a.label}</span>` : '';
+    const activeCls = (i === 0 && a.isPrimary) ? ' active' : '';
+    return `<button class="alt-chip${activeCls}" data-alt-idx="${i}">
+      ${a.leaveHHMM}${labelTag}
+    </button>`;
+  }).join('');
+
+  if(overflow.length > 0){
+    altChips.innerHTML += `<button class="alt-more" id="altMoreBtn">+${overflow.length}</button>`;
+
+    altPopover.innerHTML = overflow.map((a, i) => {
+      const labelTag = a.label ? `<span class="rank"> ${a.label}</span>` : '';
+      return `<button class="alt-chip" data-alt-idx="${visible.length + i}">
+        ${a.leaveHHMM}${labelTag}
+      </button>`;
+    }).join('');
+
+    document.getElementById('altMoreBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      altPopover.classList.toggle('open');
+    });
+  } else {
+    altPopover.innerHTML = '';
+    altPopover.classList.remove('open');
+  }
+
+  function onAltChipClick(e){
+    const chip = e.currentTarget;
+    chip.classList.add('selected');
+    setTimeout(() => chip.classList.remove('selected'), 300);
+    const idx = parseInt(chip.dataset.altIdx, 10);
+    const alt = currentAlts[idx];
+    if(!alt) return;
+    altPopover.classList.remove('open');
+    if(alt.isPrimary) return;
+    activateAlternative(alt, idx);
+  }
+  altChips.querySelectorAll('.alt-chip').forEach(chip => chip.addEventListener('click', onAltChipClick));
+  altPopover.querySelectorAll('.alt-chip').forEach(chip => chip.addEventListener('click', onAltChipClick));
+
+  document.addEventListener('click', () => altPopover.classList.remove('open'), { once: true });
+}
+
+async function activateAlternative(alt, altIdx){
+  // Highlight immediately, before async TomTom call
+  document.querySelectorAll('.alt-chip').forEach(c => c.classList.remove('active'));
+  const activeChip = document.querySelector(`.alt-chip[data-alt-idx="${altIdx}"]`);
+  if(activeChip) activeChip.classList.add('active');
+
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
+  const PARKING_BUFFER_MIN = 3;
+  let driveTime = state.driveTimeAutoMin ?? state.driveTime;
+  let trafficBuffer = state.trafficBuffer || 5;
+  const walkBuffer = state.parkingWalkAutoMin ?? state.walkBuffer;
+  let driveSource = state.driveSource;
+  let freshTomTom = false;
+
+  // Fresh TomTom query if outside 15-min window or different day
+  if(!alt.canReuseTomTom && hasParking && route.startLat != null && route.parkingLat != null){
+    renderFlaps(alt.leaveHHMM, true);
+    try{
+      const walkMin = walkBuffer || 0;
+      const arriveAtParkingISO = new Date(alt.journeyDepartDate.getTime() - (walkMin + PARKING_BUFFER_MIN) * 60000).toISOString();
+      const tt = await fetchTomTomTraffic(route.startLat, route.startLon, route.parkingLat, route.parkingLon, arriveAtParkingISO);
+      driveTime = tt.driveMin;
+      trafficBuffer = tt.trafficDelayMin;
+      driveSource = 'tomtom';
+      freshTomTom = true;
+    }catch(e){}
+  }
+
+  // Recompute with actual drive time
+  const totalLeadMin = driveTime + trafficBuffer + PARKING_BUFFER_MIN + walkBuffer;
+  const freshLeaveHome = addMinutes(alt.journeyDepartDate, -totalLeadMin);
+  const nowMs = Date.now();
+  const missedTarget = freshLeaveHome.getTime() < nowMs;
+
+  renderFlaps(missedTarget ? '----' : fmtHM(freshLeaveHome), false);
+
+  const arriveBy = document.getElementById('arriveBy').value || '09:50';
+  const { label: arriveLabel } = resolveArriveMoment(arriveBy, new Date());
+  renderStatusPill(freshLeaveHome, arriveLabel);
+
+  if(missedTarget){
+    resultSub.innerHTML = `<span style="color:var(--alert)">Traffic shifted - this alternative no longer works.</span> Tap another or recalculate.`;
+    document.querySelectorAll('.alt-chip').forEach(c => c.classList.remove('active'));
+    const activeChip = document.querySelector(`.alt-chip[data-alt-idx="${altIdx}"]`);
+    if(activeChip) activeChip.classList.add('active');
+    return;
+  }
+
+  resultSub.innerHTML = `Arrives <b>${route.toName}</b> ${arriveLabel} ${fmtHM(alt.journeyArriveDate)}. <span style="color:var(--amber-dim)">Alternative (+${alt.offset} min flex)</span>`;
+
+  renderChips();
+
+  const parkArriveDate = addMinutes(freshLeaveHome, driveTime + trafficBuffer);
+  const platformArriveDate = addMinutes(parkArriveDate, PARKING_BUFFER_MIN + walkBuffer);
+
+  const timelineStops = hasParking ? [
+    {icon:'home', time:fmtHM(freshLeaveHome), label:'Leave home'},
+    {icon:'car', time:fmtHM(parkArriveDate), label:'Park'},
+    {icon:'walk', time:fmtHM(platformArriveDate), label:'Platform'},
+    {icon:'train', time:fmtHM(alt.journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(alt.journeyArriveDate), label:route.toName}
+  ] : [
+    {icon:'train', time:fmtHM(alt.journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(alt.journeyArriveDate), label:route.toName}
+  ];
+  renderTimeline(timelineStops);
+
+  const driveNote = freshTomTom ? `Fresh TomTom for this time · Drive ${driveTime} min + ${trafficBuffer} min buffer` : `${driveSource === 'tomtom' ? 'Traffic-aware via TomTom' : driveSource === 'osrm' ? 'Static route via OSRM' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer`;
+  const manifestRows = hasParking ? `
+    <div class="m-row"><div class="m-time">${fmtHM(freshLeaveHome)}</div><div class="m-text">Leave home<span class="m-note">${driveNote}</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk, ${walkBuffer} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
+  ` : '';
+  manifestBody.innerHTML = `${manifestRows}
+    <div class="m-row"><div class="m-time">${fmtHM(alt.journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag live">Live</span><span class="m-note">${alt.journeyDetail}</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(alt.journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${alt.journeyDurationMin} min</span></div></div>
+  `;
+  manifestPanel.style.display = 'block';
+  manifestPanel.classList.add('open');
+}
 
 function renderFlaps(hhmm, pending){
   const flapRow = document.getElementById('flapRow');
@@ -1515,6 +1854,16 @@ async function runCalc(){
   manifestPanel.classList.add('open');
 
   if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
+
+  // Generate alternatives (non-blocking, fire and forget)
+  if(live && flexMin > 0){
+    const gen = ++altGen;
+    getAlternatives(arriveBy, flexMin, driveTime, trafficBuffer, walkBuffer, leaveHomeDate.getTime(), { journeyDepartDate, journeyArriveDate, journeyDurationMin, journeyDetail, totalLeadMin })
+      .then(alts => { if(gen === altGen) renderAlternatives(alts); })
+      .catch(() => { if(gen === altGen) renderAlternatives([]); });
+  } else {
+    renderAlternatives([]);
+  }
 }
 document.getElementById('calcBtn').addEventListener('click', () => {
   assumptionsPanel.classList.remove('open');
