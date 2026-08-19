@@ -90,6 +90,12 @@
 }
 .swap-btn svg{width:16px; height:16px;}
 .swap-btn:active{border-color:var(--amber-dim); color:var(--amber);}
+.close-btn{
+  flex:none; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--text-faint);
+  border-radius:10px; padding:8px 10px; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.close-btn svg{width:14px; height:14px;}
+.close-btn:active{border-color:var(--alert); color:var(--alert);}
   .search-row{display:flex; flex-direction:column; gap:8px; margin-bottom:12px;}
   .search-row:last-of-type{margin-bottom:0;}
   .search-row label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim);}
@@ -375,6 +381,9 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 12l-3-3m3 3l3-3"/><path d="M17 8v12m0-12l3 3m-3-3l-3 3"/></svg>
         </button>
         <button class="edit-btn" id="editStationsBtn" type="button">Edit</button>
+        <button class="close-btn" id="closeStationsBtn" type="button" title="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
     </div>
     <div class="search-row">
@@ -398,6 +407,10 @@
     <div class="search-row">
       <label for="arriveBy">Arrive by</label>
       <input type="time" id="arriveBy" value="09:50">
+    </div>
+    <div class="search-row">
+      <label for="returnBy">Return by <span style="color:var(--text-faint)">(optional)</span></label>
+      <input type="time" id="returnBy" value="">
     </div>
     <div class="search-help">
       Auto picks today if the arrival time is still ahead, otherwise tomorrow.
@@ -616,7 +629,8 @@ const LS_KEYS = {
   parkingLon: 'commuter.parking.lon.v2',
   alerts: 'commuter.alerts.v2',
   tomtomUsage: 'commuter.tomtom.usage.v1',
-  parkingOverride: 'commuter.parking.override.v1'
+  parkingOverride: 'commuter.parking.override.v1',
+  returnBy: 'commuter.returnBy.v1'
 };
 let route = {
   fromName: '', toName: '',
@@ -1095,6 +1109,12 @@ document.getElementById('swapStationsBtn').addEventListener('click', e => {
   persistRoute();
   scheduleCalc();
 });
+document.getElementById('closeStationsBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  searchPanel.classList.remove('open');
+  stationEditMode = false;
+  syncStationEditUI();
+});
 fromInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
 toInput.addEventListener('focus', () => { if(searchPanel.classList.contains('open')) openStationPanel(true); });
 fromInput.addEventListener('input', debounce(e => { if(stationEditMode) searchStations(e.target.value.trim(), fromResults, 'routeFrom', 'fromId', 'fromLat', 'fromLon', 'originAlertName'); }, 300));
@@ -1254,6 +1274,12 @@ if(savedArriveBy) document.getElementById('arriveBy').value = savedArriveBy;
 document.getElementById('arriveBy').addEventListener('change', () => {
   saveString(LS_KEYS.arriveBy, document.getElementById('arriveBy').value);
   scheduleDriveEstimateRefresh(); // arrive time shifts the predictive traffic window
+});
+const savedReturnBy = loadString(LS_KEYS.returnBy);
+if(savedReturnBy) document.getElementById('returnBy').value = savedReturnBy;
+document.getElementById('returnBy').addEventListener('change', () => {
+  saveString(LS_KEYS.returnBy, document.getElementById('returnBy').value);
+  scheduleCalc();
 });
 const travelDaySeg = document.getElementById('travelDaySeg');
 const savedTravelDay = loadString(LS_KEYS.travelDay) || 'auto';
@@ -1583,9 +1609,10 @@ function getAlternatives(arriveByHHMM, flexMin, driveTime, trafficBuffer, walkBu
     }
 
     unique.forEach((a, i) => {
-      if(i === 0 && !a.isPrimary) a.label = 'early bird';
-      else if(i === unique.length - 1 && unique.length > 1 && !a.isPrimary) a.label = 'relaxed';
-      else if(!a.isPrimary) a.label = '';
+      if(a.isPrimary) a.label = 'current';
+      else if(i === 1) a.label = 'early bird';
+      else if(i === unique.length - 1 && unique.length > 2) a.label = 'relaxed';
+      else a.label = '';
     });
     return unique;
   });
@@ -1641,6 +1668,7 @@ function renderAlternatives(alts){
   }
 
   function onAltChipClick(e){
+    e.stopPropagation();
     const chip = e.currentTarget;
     chip.classList.add('selected');
     setTimeout(() => chip.classList.remove('selected'), 300);
@@ -1811,19 +1839,16 @@ const manifestBody = document.getElementById('manifestBody');
 
 /* ---------- Return journey ---------- */
 let returnGen = 0;
-async function renderReturnJourney(outboundArriveDate, totalLeadMin){
+async function renderReturnJourney(returnByHHMM){
   const returnPanel = document.getElementById('returnPanel');
   const returnBody = document.getElementById('returnBody');
   const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
 
-  if(!route.fromId || !route.toId || !hasParking){
+  if(!route.fromId || !route.toId || !hasParking || !returnByHHMM){
     returnPanel.style.display = 'none';
     returnPanel.classList.remove('open');
     return;
   }
-
-  const returnArrive = addMinutes(outboundArriveDate, 10);
-  const returnArriveHHMM = fmtHM(returnArrive);
 
   const gen = ++returnGen;
   try{
@@ -1837,7 +1862,10 @@ async function renderReturnJourney(outboundArriveDate, totalLeadMin){
     route.toLat = origFromLat; route.toLon = origFromLon;
     route.fromName = origToName; route.toName = origFromName;
 
-    const journey = await getJourney(returnArriveHHMM);
+    const retFromName = route.fromName;
+    const retToName = route.toName;
+
+    const journey = await getJourney(returnByHHMM);
 
     route.fromId = origFrom; route.toId = origTo;
     route.fromLat = origFromLat; route.fromLon = origFromLon;
@@ -1863,9 +1891,9 @@ async function renderReturnJourney(outboundArriveDate, totalLeadMin){
     const detail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
 
     const retTimeline = [
-      {icon:'flag', time:fmtHM(leaveDestDate), label:`Leave ${route.fromName}`},
-      {icon:'train', time:fmtHM(jDepart), label:route.fromName},
-      {icon:'train', time:fmtHM(jArrive), label:route.toName},
+      {icon:'flag', time:fmtHM(leaveDestDate), label:`Leave ${retFromName}`},
+      {icon:'train', time:fmtHM(jDepart), label:retFromName},
+      {icon:'train', time:fmtHM(jArrive), label:retToName},
       {icon:'walk', time:fmtHM(walkToCarDate), label:'Walk to car'},
       {icon:'home', time:fmtHM(arriveHomeDate), label:'Home'}
     ];
@@ -1875,9 +1903,9 @@ async function renderReturnJourney(outboundArriveDate, totalLeadMin){
       <div class="timeline-wrap">
         <div class="timeline-track" id="${returnTrackId}"></div>
       </div>
-      <div class="m-row"><div class="m-time">${fmtHM(leaveDestDate)}</div><div class="m-text">Leave ${route.fromName}<span class="m-note">Walk ${walkBuf} min + ${PARKING_BUFFER_MIN} min grace</span></div></div>
-      <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
-      <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(leaveDestDate)}</div><div class="m-text">Leave ${retFromName}<span class="m-note">Walk ${walkBuf} min + ${PARKING_BUFFER_MIN} min grace</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
+      <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
     `;
@@ -2003,8 +2031,9 @@ async function runCalc(){
   }
 
   // Return journey (non-blocking)
-  if(live && hasParking){
-    renderReturnJourney(journeyArriveDate, totalLeadMin);
+  const returnBy = document.getElementById('returnBy').value || '';
+  if(live && returnBy){
+    renderReturnJourney(returnBy);
   } else {
     const rp = document.getElementById('returnPanel');
     rp.style.display = 'none';
