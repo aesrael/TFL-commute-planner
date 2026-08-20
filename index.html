@@ -541,17 +541,6 @@
     </div>
   </div>
 
-  <!-- Return journey -->
-  <div class="panel" id="returnPanel" style="display:none;">
-    <div class="panel-header" id="returnHeader">
-      <h2>Return journey</h2>
-      <span class="chev">▾</span>
-    </div>
-    <div class="panel-body">
-      <div id="returnBody"></div>
-    </div>
-  </div>
-
   <!-- Full breakdown, collapsed by default -->
   <div class="panel" id="manifestPanel" style="display:none;">
     <div class="panel-header" id="manifestHeader">
@@ -560,6 +549,17 @@
     </div>
     <div class="panel-body">
       <div id="manifestBody"></div>
+    </div>
+  </div>
+
+  <!-- Return journey -->
+  <div class="panel" id="returnPanel" style="display:none;">
+    <div class="panel-header" id="returnHeader">
+      <h2>Return journey</h2>
+      <span class="chev">▾</span>
+    </div>
+    <div class="panel-body">
+      <div id="returnBody"></div>
     </div>
   </div>
 
@@ -1515,6 +1515,21 @@ async function getJourney(arriveByHHMM){
   if(!data.journeys || !data.journeys.length) throw new Error('No journeys returned');
   return data.journeys[0];
 }
+async function getReverseJourney(arriveByHHMM, fromLat, fromLon, fromId, fromName, toLat, toLon, toId, toName){
+  const now = new Date();
+  const { target } = resolveArriveMoment(arriveByHHMM, now);
+  const dateStr = `${target.getFullYear()}${String(target.getMonth()+1).padStart(2,'0')}${String(target.getDate()).padStart(2,'0')}`;
+  const timeStr = arriveByHHMM.replace(':','');
+  const from = (fromLat != null && fromLon != null) ? `${fromLat},${fromLon}` : (fromId || fromName);
+  const to = (toLat != null && toLon != null) ? `${toLat},${toLon}` : (toId || toName);
+  const qs = new URLSearchParams({
+    date: dateStr, time: timeStr, timeIs: 'Arriving', journeyPreference: 'LeastTime',
+    fromName, toName
+  });
+  const data = await fetchJSON(`${TFL_BASE}/Journey/JourneyResults/${encodeURIComponent(from)}/to/${encodeURIComponent(to)}?${qs.toString()}`);
+  if(!data.journeys || !data.journeys.length) throw new Error('No journeys returned');
+  return data.journeys[0];
+}
 function fmtHM(date){ return date.toTimeString().slice(0,5); }
 function addMinutes(date, mins){ return new Date(date.getTime() + mins*60000); }
 
@@ -1852,25 +1867,14 @@ async function renderReturnJourney(returnByHHMM){
 
   const gen = ++returnGen;
   try{
-    const origFrom = route.fromId, origTo = route.toId;
-    const origFromLat = route.fromLat, origFromLon = route.fromLon;
-    const origToLat = route.toLat, origToLon = route.toLon;
-    const origFromName = route.fromName, origToName = route.toName;
+    const retFromName = route.toName;
+    const retToName = route.fromName;
 
-    route.fromId = origTo; route.toId = origFrom;
-    route.fromLat = origToLat; route.fromLon = origToLon;
-    route.toLat = origFromLat; route.toLon = origFromLon;
-    route.fromName = origToName; route.toName = origFromName;
-
-    const retFromName = route.fromName;
-    const retToName = route.toName;
-
-    const journey = await getJourney(returnByHHMM);
-
-    route.fromId = origFrom; route.toId = origTo;
-    route.fromLat = origFromLat; route.fromLon = origFromLon;
-    route.toLat = origToLat; route.toLon = origToLon;
-    route.fromName = origFromName; route.toName = origToName;
+    const journey = await getReverseJourney(
+      returnByHHMM,
+      route.toLat, route.toLon, route.toId, route.toName,
+      route.fromLat, route.fromLon, route.fromId, route.fromName
+    );
 
     if(gen !== returnGen) return;
 
@@ -1891,7 +1895,6 @@ async function renderReturnJourney(returnByHHMM){
     const detail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
 
     const retTimeline = [
-      {icon:'flag', time:fmtHM(leaveDestDate), label:`Leave ${retFromName}`},
       {icon:'train', time:fmtHM(jDepart), label:retFromName},
       {icon:'train', time:fmtHM(jArrive), label:retToName},
       {icon:'walk', time:fmtHM(walkToCarDate), label:'Walk to car'},
@@ -1903,7 +1906,6 @@ async function renderReturnJourney(returnByHHMM){
       <div class="timeline-wrap">
         <div class="timeline-track" id="${returnTrackId}"></div>
       </div>
-      <div class="m-row"><div class="m-time">${fmtHM(leaveDestDate)}</div><div class="m-text">Leave ${retFromName}<span class="m-note">Walk ${walkBuf} min + ${PARKING_BUFFER_MIN} min grace</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
@@ -1923,6 +1925,16 @@ async function renderReturnJourney(returnByHHMM){
 
     returnPanel.style.display = 'block';
     returnPanel.classList.add('open');
+
+    // Schedule leave-station reminder
+    const now = Date.now();
+    if(leaveDestDate.getTime() > now){
+      const fireAt = leaveDestDate.getTime() - REMIND_EARLY_MIN * 60000;
+      const delay = Math.max(fireAt - now, 1000);
+      reminders.leaveStation = setTimeout(() => {
+        fireDepartureReminder('Time to head back!', 'Leave the station now to catch your return train.');
+      }, delay);
+    }
   }catch(e){
     if(gen !== returnGen) return;
     returnPanel.style.display = 'none';
@@ -2039,6 +2051,9 @@ async function runCalc(){
     rp.style.display = 'none';
     rp.classList.remove('open');
   }
+
+  // Schedule leave-home reminder
+  scheduleReminders(leaveHomeDate.getTime(), null);
 }
 document.getElementById('calcBtn').addEventListener('click', () => {
   assumptionsPanel.classList.remove('open');
@@ -2192,6 +2207,67 @@ document.getElementById('testSoundBtn').addEventListener('click', () => {
   showBanner('Test alert', text);
   if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
 });
+
+/* ---------- Departure reminders ---------- */
+const reminders = { leaveHome: null, leaveStation: null };
+const REMIND_EARLY_MIN = 10; // remind 10 min before
+
+function scheduleReminders(leaveHomeMs, leaveDestMs){
+  clearReminders();
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+  const now = Date.now();
+  if(leaveHomeMs && leaveHomeMs > now){
+    const fireAt = leaveHomeMs - REMIND_EARLY_MIN * 60000;
+    const delay = Math.max(fireAt - now, 1000);
+    reminders.leaveHome = setTimeout(() => {
+      fireDepartureReminder('Time to leave home!', `Leave now to catch your train. You have ${REMIND_EARLY_MIN} min head start.`);
+    }, delay);
+  }
+  if(leaveDestMs && leaveDestMs > now){
+    const fireAt = leaveDestMs - REMIND_EARLY_MIN * 60000;
+    const delay = Math.max(fireAt - now, 1000);
+    reminders.leaveStation = setTimeout(() => {
+      fireDepartureReminder('Time to head back!', `Leave the station now to catch your return train.`);
+    }, delay);
+  }
+  // Tell service worker to keep checking
+  if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+    navigator.serviceWorker.controller.postMessage('start-reminders');
+  }
+}
+
+function clearReminders(){
+  clearTimeout(reminders.leaveHome);
+  clearTimeout(reminders.leaveStation);
+  reminders.leaveHome = null;
+  reminders.leaveStation = null;
+  if('serviceWorker' in navigator && navigator.serviceWorker.controller){
+    navigator.serviceWorker.controller.postMessage('stop-reminders');
+  }
+}
+
+function fireDepartureReminder(title, body){
+  playChime(); vibrate(); speak(title);
+  showBanner(title, body);
+  if('Notification' in window && Notification.permission === 'granted'){
+    try{ new Notification(title, { body, icon: 'favicon.svg', vibrate: [200, 100, 200] }); }catch(e){}
+  }
+}
+
+// Check reminders when page regains focus
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible'){
+    // Fire any due reminders that might have been missed in background
+    // (handled by setTimeout in foreground — service worker handles background)
+  }
+});
+
+// Register service worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
