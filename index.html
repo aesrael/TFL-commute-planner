@@ -1495,6 +1495,52 @@ if(route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 
 syncSetupNudge();
 
 /* ---------- Journey lookup ---------- */
+function isTransitLeg(leg){
+  return !!(leg.mode && leg.mode.name && leg.mode.name !== 'walking');
+}
+function legLineId(leg){
+  const opt = leg.routeOptions && leg.routeOptions[0];
+  return (opt && opt.lineIdentifier && opt.lineIdentifier.id) || null;
+}
+async function fetchNextArrivals(naptanId, lineId, count){
+  if(!naptanId) return [];
+  try{
+    const data = await fetchJSONPlain(`${TFL_BASE}/StopPoint/${naptanId}/Arrivals`);
+    let list = Array.isArray(data) ? data : [];
+    if(lineId) list = list.filter(a => a.lineId === lineId);
+    list.sort((a,b) => a.timeToStation - b.timeToStation);
+    return list.slice(0, count).map(a => fmtHM(new Date(a.expectedArrival)));
+  }catch(e){
+    return [];
+  }
+}
+function renderLegRow(leg, idx){
+  const transit = isTransitLeg(leg);
+  const from = (leg.departurePoint && leg.departurePoint.commonName) || '';
+  const to = (leg.arrivalPoint && leg.arrivalPoint.commonName) || '';
+  const dur = leg.duration != null ? `${leg.duration} min` : '';
+  const modeLabel = (leg.instruction && leg.instruction.summary) || (leg.mode && leg.mode.name) || 'Leg';
+  const timeLabel = leg.departureTime ? fmtHM(new Date(leg.departureTime)) : '';
+  const routeNote = [from, (to && to !== from) ? `→ ${to}` : '', dur ? `· ${dur}` : ''].filter(Boolean).join(' ');
+  return `<div class="m-row"><div class="m-time">${timeLabel}</div><div class="m-text">${modeLabel}${transit ? '<span class="m-tag live">Live</span>' : ''}<span class="m-note">${routeNote}</span>${transit ? `<span class="m-note" id="leg-arr-${idx}">Next trains: loading…</span>` : ''}</div></div>`;
+}
+async function patchLegArrivals(journeyLegs){
+  journeyLegs.forEach((leg, idx) => {
+    if(!isTransitLeg(leg)) return;
+    const el = document.getElementById(`leg-arr-${idx}`);
+    if(leg.mode && leg.mode.name === 'national-rail'){
+      if(el) el.textContent = 'Live times not covered for National Rail — check the operator app';
+      return;
+    }
+    const naptanId = leg.departurePoint && leg.departurePoint.naptanId;
+    const lineId = legLineId(leg);
+    fetchNextArrivals(naptanId, lineId, 2).then(times => {
+      const liveEl = document.getElementById(`leg-arr-${idx}`);
+      if(!liveEl) return;
+      liveEl.textContent = times.length ? `Next trains: ${times.join(', ')}` : 'Next trains: unavailable';
+    });
+  });
+}
 async function getJourney(arriveByHHMM){
   if(!route.fromId || !route.toId) throw new Error('Route not set');
   const now = new Date();
@@ -1962,7 +2008,7 @@ async function runCalc(){
   const arriveBy = document.getElementById('arriveBy').value || '09:50';
   const now = new Date();
   const { target: arriveDate, label: arriveLabel } = resolveArriveMoment(arriveBy, now);
-  let journeyDepartDate, journeyArriveDate, journeyDurationMin, live = true, journeyDetail = '';
+  let journeyDepartDate, journeyArriveDate, journeyDurationMin, live = true, journeyDetail = '', journeyLegs = [];
   try{
     const journey = await getJourney(arriveBy);
     journeyDepartDate = new Date(journey.startDateTime);
@@ -1970,6 +2016,7 @@ async function runCalc(){
     journeyDurationMin = journey.duration;
     const legs = journey.legs || [];
     journeyDetail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
+    journeyLegs = legs;
   }catch(e){
     live = false;
     journeyDurationMin = 55;
@@ -2023,14 +2070,17 @@ async function runCalc(){
     <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
-  manifestBody.innerHTML = `${manifestRows}
-    <div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>
-  `;
+  const legsHtml = (live && journeyLegs.length)
+    ? journeyLegs.map((leg, idx) => renderLegRow(leg, idx)).join('') +
+      `<div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`
+    : `<div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
+       <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`;
+  manifestBody.innerHTML = `${manifestRows}${legsHtml}`;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
 
   if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
+  if(live && journeyLegs.length) patchLegArrivals(journeyLegs);
 
   // Generate alternatives (non-blocking, fire and forget)
   if(live && flexMin > 0){
