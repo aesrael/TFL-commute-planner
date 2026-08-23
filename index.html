@@ -353,6 +353,50 @@
   .kbd-hint{display:inline-block; margin-top:10px; font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint);}
 
   footer{text-align:center; font-size:10.5px; color:#454B55; margin-top:18px; letter-spacing:.03em; line-height:1.6;}
+
+  /* ---------- Find parking ---------- */
+  .find-parking-btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    width:100%; border:1px solid var(--amber-dim); background:rgba(255,176,32,0.06);
+    color:var(--amber); border-radius:10px; padding:12px 16px; font-size:13px; font-weight:600;
+    letter-spacing:.04em; text-transform:uppercase; cursor:pointer;
+    transition: background .15s;
+  }
+  .find-parking-btn:active{background:rgba(255,176,32,0.12);}
+  .find-parking-btn svg{width:16px; height:16px; flex:none;}
+
+  .parking-backdrop{
+    position:fixed; inset:0; z-index:99; background:rgba(0,0,0,0.5);
+    opacity:0; pointer-events:none; transition:opacity .25s ease;
+  }
+  .parking-backdrop.open{opacity:1; pointer-events:auto;}
+
+  .parking-panel{
+    position:fixed; bottom:0; left:50%; transform:translateX(-50%) translateY(100%); z-index:100;
+    background:var(--panel); border-top:1px solid var(--hairline); border-radius:16px 16px 0 0;
+    padding:16px; max-height:60vh; overflow-y:auto; width:100%; max-width:480px;
+    transition:transform .25s ease;
+  }
+  .parking-panel.open{transform:translateX(-50%) translateY(0);}
+  .parking-panel-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .parking-panel-title{font-family:'Oswald',sans-serif; font-size:12.5px; text-transform:uppercase; letter-spacing:.1em; color:var(--text); font-weight:600;}
+  .parking-panel-meta{font-size:11.5px; color:var(--text-faint); margin-bottom:12px;}
+  .parking-panel-results{display:flex; flex-direction:column; gap:6px;}
+  .parking-result{
+    display:flex; align-items:center; justify-content:space-between; background:var(--panel-raised);
+    border:1px solid var(--hairline); border-radius:10px; padding:12px 14px; cursor:pointer;
+  }
+  .parking-result:active{border-color:var(--amber-dim); background:rgba(255,176,32,0.05);}
+  .parking-result-name{font-size:13.5px; color:var(--text); font-weight:500;}
+  .parking-result-addr{font-size:11px; color:var(--text-faint); margin-top:2px;}
+  .parking-result-meta{text-align:right; flex:none; margin-left:12px;}
+  .parking-result-dist{font-size:11px; color:var(--text-dim);}
+  .parking-result-price{font-size:14px; color:var(--ok); font-weight:600; font-family:'Space Mono',monospace;}
+  .parking-result-price.cheap{color:var(--ok);}
+  .parking-result-price.mid{color:var(--warn);}
+  .parking-result-price.expensive{color:var(--alert);}
+  .parking-result-walk{font-size:10px; color:var(--text-faint); margin-top:2px;}
+  .parking-result-loading{font-size:12px; color:var(--text-faint); padding:20px; text-align:center;}
 </style>
 </head>
 <body>
@@ -398,10 +442,13 @@
     </div>
     <div class="search-row">
       <label>Day of travel</label>
-      <div class="seg" id="travelDaySeg">
-        <button type="button" data-day="auto" class="seg-btn">Auto</button>
-        <button type="button" data-day="today" class="seg-btn">Today</button>
-        <button type="button" data-day="tomorrow" class="seg-btn">Tomorrow</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <div class="seg" id="travelDaySeg" style="flex:1;">
+          <button type="button" data-day="auto" class="seg-btn">Auto</button>
+          <button type="button" data-day="today" class="seg-btn">Today</button>
+          <button type="button" data-day="tomorrow" class="seg-btn">Tomorrow</button>
+        </div>
+        <input type="date" id="travelDate" style="background:var(--panel-raised); border:1px solid var(--hairline); border-radius:8px; padding:8px 10px; color:var(--text); font-size:12px; font-family:'Inter',sans-serif; width:auto; cursor:pointer; color-scheme:dark;">
       </div>
     </div>
     <div class="search-row">
@@ -442,9 +489,7 @@
     </div>
   </div>
 
-  <div id="setupNudge" style="display:none; background:rgba(255,176,32,0.1); border:1px dashed var(--amber-dim); border-radius:12px; padding:12px 14px; margin-bottom:12px; font-size:13px; color:var(--amber); line-height:1.5; cursor:pointer;">
-    If you drive to the station, set your <b>parking spot</b> and <b>start point</b> below so drive and walk times can be auto-calculated. Otherwise the plan assumes you start at the origin station.
-  </div>
+  <div id="parkingNudge" style="display:none; margin-bottom:12px;"></div>
 
   <div class="fetch-note" id="statusLine"></div>
 
@@ -596,6 +641,31 @@
     </div>
   </div>
 
+  <!-- Parking search modal -->
+  <div class="parking-backdrop" id="parkingSearchBackdrop"></div>
+  <div class="parking-panel" id="parkingSearchPanel">
+    <div class="parking-panel-head">
+      <div class="parking-panel-title">Nearby parking</div>
+      <button class="close-btn" id="closeParkingSearch" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="parking-panel-meta" id="parkingSearchMeta"></div>
+    <div class="parking-time-row" style="display:flex; align-items:center; gap:10px; margin-bottom:14px; background:var(--panel-sunken); padding:10px 12px; border-radius:10px; border:1px solid var(--hairline);">
+      <div style="flex:1;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">From</div>
+        <input type="time" id="parkingStartTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
+      </div>
+      <span style="color:var(--text-faint); margin-top:14px;">→</span>
+      <div style="flex:1;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">Until</div>
+        <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
+      </div>
+      <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 10px;">Search</button>
+    </div>
+    <div class="parking-panel-results" id="parkingSearchResults"></div>
+  </div>
+
   <footer>
     Live times via TfL Unified API where available · parking lookup via Nominatim · route estimates via OSRM · verify before relying on them
   </footer>
@@ -619,6 +689,7 @@ const LS_KEYS = {
   voice: 'commuter.voice.v2',
   arriveBy: 'commuter.arriveBy.v2',
   travelDay: 'commuter.travelDay.v2',
+  travelDate: 'commuter.travelDate.v1',
   appId: 'commuter.tfl.appId.v2',
   appKey: 'commuter.tfl.appKey.v2',
   startName: 'commuter.start.name.v2',
@@ -746,18 +817,64 @@ function cachePosition(){
 }
 cachePosition();
 const NUDGE_THRESHOLD_M = 1000;
-function syncSetupNudge(){
-  const nudge = document.getElementById('setupNudge');
-  const needsNudge = route.fromId && route.toId && (route.parkingLat == null || route.parkingLat === 0);
-  if(!needsNudge || route.fromLat == null || route.fromLon == null){ nudge.style.display = 'none'; return; }
-  if(cachedPosition){
-    const dist = haversine(cachedPosition.latitude, cachedPosition.longitude, route.fromLat, route.fromLon);
-    nudge.style.display = dist > NUDGE_THRESHOLD_M ? 'block' : 'none';
+function syncParkingNudge(){
+  const bar = document.getElementById('parkingNudge');
+  if(!bar) return;
+  const hasOrigin = route.fromLat != null && route.fromLon != null && !(route.fromLat === 0 && route.fromLon === 0);
+  const hasDest = route.toLat != null && route.toLon != null && !(route.toLat === 0 && route.toLon === 0);
+  if(!hasOrigin || !hasDest){ bar.style.display = 'none'; return; }
+
+  const spotName = parkingSpotNameInput ? parkingSpotNameInput.value.trim() : '';
+  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0 && !!spotName;
+
+  bar.style.display = 'block';
+
+  if(hasParking){
+    bar.innerHTML = `
+      <div style="display:flex; align-items:center; justify-content:space-between; background:var(--panel); border:1px solid var(--hairline); border-radius:12px; padding:10px 14px; gap:10px;">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+          <span style="color:var(--amber); flex:none; display:flex;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px; height:16px;"><rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          </span>
+          <div style="min-width:0;">
+            <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim);">Parking spot</div>
+            <div style="font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${spotName}</div>
+          </div>
+        </div>
+        <button class="find-parking-btn" id="changeParkingBtn" type="button" style="width:auto; padding:6px 12px; font-size:11px; flex:none;">Change</button>
+      </div>
+    `;
+    document.getElementById('changeParkingBtn').addEventListener('click', showParkingSearch);
   }else{
-    nudge.style.display = 'block';
+    let nudgeHtml = '';
+    const needsNudge = route.fromId && route.toId;
+    if(needsNudge){
+      let showNudge = true;
+      if(cachedPosition){
+        const dist = haversine(cachedPosition.latitude, cachedPosition.longitude, route.fromLat, route.fromLon);
+        showNudge = dist > NUDGE_THRESHOLD_M;
+      }
+      if(showNudge){
+        nudgeHtml = `<div style="font-size:12px; color:var(--text-dim); line-height:1.5; margin-bottom:8px;">
+          Drive to the station? Set a parking spot and start point below to auto-calculate drive and walk times.
+        </div>`;
+      }
+    }
+    bar.innerHTML = `
+      <div style="background:var(--panel); border:1px solid var(--hairline); border-radius:10px; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px; height:15px; color:var(--amber); flex:none;"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          <span style="font-size:12.5px; color:var(--text);">Find parking near ${route.fromName || 'station'}</span>
+        </div>
+        <button class="find-parking-btn" id="findParkingBtn" type="button" style="width:auto; padding:6px 14px; font-size:11px; flex:none; margin-bottom:0;">Search</button>
+      </div>
+      ${nudgeHtml ? `<div style="font-size:11px; color:var(--text-faint); margin-top:6px; line-height:1.4;">${nudgeHtml}</div>` : ''}
+    `;
+    document.getElementById('findParkingBtn').addEventListener('click', showParkingSearch);
   }
 }
-document.getElementById('setupNudge').addEventListener('click', () => {
+document.getElementById('parkingNudge').addEventListener('click', (e) => {
+  if(e.target.closest('#changeParkingBtn') || e.target.closest('#findParkingBtn')) return;
   assumptionsPanel.classList.add('open');
   assumptionsPanel.scrollIntoView({behavior:'smooth', block:'center'});
 });
@@ -773,6 +890,7 @@ function syncParkingUI(){
     ? 'No saved location yet'
     : `Saved location: ${route.parkingLat.toFixed(5)}, ${route.parkingLon.toFixed(5)}`;
   updateParkingLabels();
+  syncParkingNudge();
 }
 function syncStartUI(){
   const valid = route.startLat != null && route.startLon != null && route.startLat !== 0 && route.startLon !== 0;
@@ -811,7 +929,7 @@ function applyRoutePart(side, value, id, lat, lon){
     updateParkingWalkEstimate().then(() => scheduleCalc());
   }
   scheduleCalc();
-  syncSetupNudge();
+  syncParkingNudge();
 }
 function applyExactText(side, value){
   applyRoutePart(side, value, value, null, null);
@@ -820,11 +938,26 @@ function selectedTravelDay(){
   const active = document.querySelector('#travelDaySeg .seg-btn.active');
   return active ? active.dataset.day : 'auto';
 }
+function getSelectedDate(){
+  const dateVal = document.getElementById('travelDate')?.value;
+  if(dateVal) return dateVal;
+  return null;
+}
 function resolveArriveMoment(arriveByHHMM, now = new Date(), day = selectedTravelDay()){
   const [hh, mm] = arriveByHHMM.split(':').map(Number);
-  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dateOverride = getSelectedDate();
+  let base;
+  if(dateOverride){
+    const [y, m, d] = dateOverride.split('-').map(Number);
+    base = new Date(y, m - 1, d);
+  }else{
+    base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
   let target, label;
-  if(day === 'today'){
+  if(dateOverride){
+    target = new Date(base.getTime() + hh*3600000 + mm*60000);
+    label = dateOverride;
+  }else if(day === 'today'){
     target = new Date(base.getTime() + hh*3600000 + mm*60000);
     label = 'today';
   }else if(day === 'tomorrow'){
@@ -1282,19 +1415,46 @@ document.getElementById('returnBy').addEventListener('change', () => {
   scheduleCalc();
 });
 const travelDaySeg = document.getElementById('travelDaySeg');
+const travelDateInput = document.getElementById('travelDate');
 const savedTravelDay = loadString(LS_KEYS.travelDay) || 'auto';
+const savedTravelDate = loadString(LS_KEYS.travelDate);
 travelDaySeg.querySelectorAll('.seg-btn').forEach(btn => {
   btn.classList.toggle('active', btn.dataset.day === savedTravelDay);
 });
+if(savedTravelDate){
+  travelDateInput.value = savedTravelDate;
+  travelDateInput.style.borderColor = 'var(--amber)';
+  travelDaySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+}
 travelDaySeg.addEventListener('click', e => {
   const btn = e.target.closest('.seg-btn');
   if(!btn) return;
   travelDaySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b === btn));
   saveString(LS_KEYS.travelDay, btn.dataset.day);
+  travelDateInput.value = '';
+  saveString(LS_KEYS.travelDate, '');
   renderChips();
   scheduleCalc();
-  scheduleDriveEstimateRefresh(); // today vs tomorrow also shifts the predictive traffic window
+  scheduleDriveEstimateRefresh();
 });
+function handleDateChange(){
+  if(travelDateInput.value){
+    travelDaySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+    travelDateInput.style.borderColor = 'var(--amber)';
+    saveString(LS_KEYS.travelDay, '');
+    saveString(LS_KEYS.travelDate, travelDateInput.value);
+  }else{
+    travelDateInput.style.borderColor = '';
+    saveString(LS_KEYS.travelDate, '');
+    const saved = loadString(LS_KEYS.travelDay) || 'auto';
+    travelDaySeg.querySelectorAll('.seg-btn').forEach(b => b.classList.toggle('active', b.dataset.day === saved));
+  }
+  renderChips();
+  scheduleCalc();
+  scheduleDriveEstimateRefresh();
+}
+travelDateInput.addEventListener('change', handleDateChange);
+travelDateInput.addEventListener('input', handleDateChange);
 tflAppIdInput.addEventListener('change', () => saveString(LS_KEYS.appId, tflAppIdInput.value.trim()));
 tflAppKeyInput.addEventListener('change', () => saveString(LS_KEYS.appKey, tflAppKeyInput.value.trim()));
 let parkingLookupTimer = null;
@@ -1492,7 +1652,7 @@ if(route.startLat != null && route.startLon != null && route.parkingLat != null 
 if(route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0){
   updateParkingWalkEstimate();
 }
-syncSetupNudge();
+syncParkingNudge();
 
 /* ---------- Journey lookup ---------- */
 function isTransitLeg(leg){
@@ -2318,6 +2478,178 @@ document.addEventListener('visibilitychange', () => {
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+/* ---------- JustPark parking search ---------- */
+const JUSTPARK_GQL = 'https://www.justpark.com/graphql';
+const parkingSearchPanel = document.getElementById('parkingSearchPanel');
+const parkingSearchResults = document.getElementById('parkingSearchResults');
+const parkingSearchMeta = document.getElementById('parkingSearchMeta');
+const parkingSearchBackdrop = document.getElementById('parkingSearchBackdrop');
+
+function closeParkingModal(){
+  parkingSearchPanel.classList.remove('open');
+  parkingSearchBackdrop.classList.remove('open');
+}
+
+async function searchJustPark(lat, lng, startDate, endDate){
+  const query = `query GetSearch($lat:Float!,$lng:Float!,$startDate:String!,$endDate:String!){
+    search(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){
+      results{
+        id title
+        coordinates{lat lng}
+        price(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){formatted amount currency}
+        distance(lat:$lat,lng:$lng)
+        address
+      }
+    }
+  }`;
+  const res = await fetch(JUSTPARK_GQL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ query, variables:{ lat, lng, startDate, endDate } })
+  });
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data?.data?.search?.results || [];
+}
+
+function estimateWalkMinutes(lat1, lng1, lat2, lng2){
+  const R = 3959;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  const miles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return Math.round(miles * 20);
+}
+
+function showParkingSearch(){
+  if(!route.fromId || !route.toId) return;
+
+  const lat = route.fromLat;
+  const lng = route.fromLon;
+  if(lat == null || lng == null) return;
+
+  const arriveBy = document.getElementById('arriveBy').value || '09:50';
+  const returnBy = document.getElementById('returnBy').value;
+  const { target: arriveDate } = resolveArriveMoment(arriveBy, new Date());
+  const driveTime = state.driveTimeAutoMin ?? state.driveTime ?? 30;
+  const trafficBuffer = state.trafficBuffer ?? 5;
+  const walkBuffer = state.parkingWalkAutoMin ?? state.walkBuffer ?? 10;
+  const PARKING_BUFFER_MIN = 3;
+  const PARKING_SEARCH_BUFFER_MIN = 15;
+
+  const parkStartMs = arriveDate.getTime() - (walkBuffer + PARKING_BUFFER_MIN + PARKING_SEARCH_BUFFER_MIN) * 60000 - driveTime * 60000 - trafficBuffer * 60000;
+  let parkEndMs;
+  if(returnBy){
+    const { target: returnDate } = resolveArriveMoment(returnBy, new Date());
+    parkEndMs = returnDate.getTime() + (walkBuffer + PARKING_BUFFER_MIN + PARKING_SEARCH_BUFFER_MIN) * 60000;
+    if(parkEndMs <= parkStartMs) parkEndMs = parkStartMs + 4 * 3600000;
+  }else{
+    parkEndMs = parkStartMs + 4 * 3600000;
+  }
+
+  parkingSearchMeta.textContent = `Parking near ${route.fromName}`;
+  parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
+  parkingSearchPanel.classList.add('open');
+  parkingSearchBackdrop.classList.add('open');
+
+  const startTimeEl = document.getElementById('parkingStartTime');
+  const endTimeEl = document.getElementById('parkingEndTime');
+  startTimeEl.value = fmtHM(new Date(parkStartMs));
+  endTimeEl.value = fmtHM(new Date(parkEndMs));
+
+  function doSearch(startMs, endMs){
+    const sISO = new Date(startMs).toISOString();
+    const eISO = new Date(endMs).toISOString();
+    parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${fmtHM(new Date(startMs))} – ${fmtHM(new Date(endMs))}`;
+    parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
+
+    searchJustPark(lat, lng, sISO, eISO).then(results => {
+      if(!results.length){
+        parkingSearchResults.innerHTML = '<div class="parking-result-loading">No results found</div>';
+        return;
+      }
+      const withCoords = results.filter(r => r.coordinates && r.coordinates.lat && r.coordinates.lng);
+      withCoords.forEach(r => {
+        r._amount = r.price && r.price.amount ? r.price.amount : Infinity;
+        r._dist = r.distance != null ? parseFloat(r.distance) : Infinity;
+        r._walkMin = estimateWalkMinutes(lat, lng, r.coordinates.lat, r.coordinates.lng);
+      });
+      const cheap = withCoords.filter(r => r._amount <= 10).sort((a,b) => a._amount - b._amount || a._dist - b._dist);
+      const pricey = withCoords.filter(r => r._amount > 10).sort((a,b) => a._dist - b._dist);
+      const sorted = [...cheap, ...pricey].slice(0, 10);
+
+      parkingSearchResults.innerHTML = sorted.map(r => {
+        const distMi = r._dist < Infinity ? r._dist.toFixed(1) + ' mi' : '';
+        const price = r.price && r.price.formatted ? r.price.formatted : '';
+        const amount = r._amount;
+        const addr = r.address || '';
+        const walkMin = r._walkMin;
+        const walkStr = walkMin > 0 ? `${walkMin} min walk` : '';
+        let priceClass = '';
+        if(amount < 5) priceClass = 'cheap';
+        else if(amount <= 10) priceClass = 'mid';
+        else priceClass = 'expensive';
+        return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}">
+          <div style="min-width:0;">
+            <div class="parking-result-name">${r.title || 'Parking'}</div>
+            ${addr ? `<div class="parking-result-addr">${addr}</div>` : ''}
+            <div style="display:flex; gap:8px; margin-top:3px; flex-wrap:wrap;">
+              ${walkStr ? `<span class="parking-result-walk">${walkStr}</span>` : ''}
+              ${distMi ? `<span class="parking-result-dist">${distMi} from station</span>` : ''}
+            </div>
+          </div>
+          <div class="parking-result-meta">
+            ${price ? `<div class="parking-result-price ${priceClass}">${price}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+
+      parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const name = el.dataset.name;
+          const rLat = parseFloat(el.dataset.lat);
+          const rLng = parseFloat(el.dataset.lng);
+          const walkMin = parseInt(el.dataset.walk, 10);
+          parkingSpotNameInput.value = name;
+          route.parkingLat = rLat;
+          route.parkingLon = rLng;
+          if(Number.isFinite(walkMin)){
+            state.parkingWalkAutoMin = walkMin;
+            state.parkingWalkLong = walkMin > 20;
+          }
+          syncParkingUI();
+          updateParkingLabels();
+          persistParking();
+          updateParkingWalkEstimate().then(() => scheduleCalc());
+          closeParkingModal();
+        });
+      });
+    }).catch(e => {
+      parkingSearchResults.innerHTML = `<div class="parking-result-loading">Search failed: ${e.message}</div>`;
+    });
+  }
+
+  document.getElementById('updateParkingTimeBtn').onclick = () => {
+    const [sH, sM] = (startTimeEl.value || '00:00').split(':').map(Number);
+    const [eH, eM] = (endTimeEl.value || '00:00').split(':').map(Number);
+    const { target: d } = resolveArriveMoment(arriveBy, new Date());
+    const newStart = new Date(d); newStart.setHours(sH, sM, 0, 0);
+    const newEnd = new Date(d); newEnd.setHours(eH, eM, 0, 0);
+    if(newEnd <= newStart) newEnd.setTime(newStart.getTime() + 4 * 3600000);
+    doSearch(newStart.getTime(), newEnd.getTime());
+  };
+
+  doSearch(parkStartMs, parkEndMs);
+}
+
+document.getElementById('closeParkingSearch').addEventListener('click', closeParkingModal);
+parkingSearchBackdrop.addEventListener('click', closeParkingModal);
+
+// Show/hide parking nudge based on station setup
+const _origSyncRouteUI = syncRouteUI;
+syncRouteUI = function(){ _origSyncRouteUI(); syncParkingNudge(); };
+syncParkingNudge();
 </script>
 </body>
 </html>
