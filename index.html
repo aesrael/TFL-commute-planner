@@ -2496,6 +2496,7 @@ async function searchJustPark(lat, lng, startDate, endDate){
     search(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){
       results{
         id title
+        listing{id}
         coordinates{lat lng}
         price(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){formatted amount currency}
         distance(lat:$lat,lng:$lng)
@@ -2510,7 +2511,26 @@ async function searchJustPark(lat, lng, startDate, endDate){
   });
   if(!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  return data?.data?.search?.results || [];
+  const results = data?.data?.search?.results || [];
+  const ids = results.map(r => r.listing?.id).filter(Boolean);
+  if(ids.length){
+    const aliases = ids.map((id,i) => `q${i}:listing(id:${id}){canonicalUrl}`).join(' ');
+    const batchRes = await fetch(JUSTPARK_GQL, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query: `{${aliases}}` })
+    });
+    if(batchRes.ok){
+      const batchData = await batchRes.json();
+      results.forEach(r => {
+        const lid = r.listing?.id;
+        if(lid && batchData?.data?.[`q${ids.indexOf(lid)}`]){
+          r.canonicalUrl = batchData.data[`q${ids.indexOf(lid)}`].canonicalUrl;
+        }
+      });
+    }
+  }
+  return results;
 }
 
 function estimateWalkMinutes(lat1, lng1, lat2, lng2){
@@ -2592,7 +2612,11 @@ function showParkingSearch(){
         if(amount < 5) priceClass = 'cheap';
         else if(amount <= 10) priceClass = 'mid';
         else priceClass = 'expensive';
-        const jpUrl = `https://www.justpark.com/uk/parking/${encodeURIComponent((r.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/-+$/,''))}`;
+        const arriving = new Date(startMs).toISOString();
+        const leaving = new Date(endMs).toISOString();
+        const jpUrl = r.canonicalUrl
+          ? `${r.canonicalUrl}?arriving=${encodeURIComponent(arriving)}&leaving=${encodeURIComponent(leaving)}&q=${encodeURIComponent(route.fromName||'station')}&coords=${r.coordinates.lat},${r.coordinates.lng}`
+          : `https://www.justpark.com/search?q=${encodeURIComponent(r.title||'parking')}&arriving=${encodeURIComponent(arriving)}&leaving=${encodeURIComponent(leaving)}&coords=${r.coordinates.lat},${r.coordinates.lng}&booking_type=hourly`;
         return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
           <div style="min-width:0;">
             <div class="parking-result-name">${r.title || 'Parking'}</div>
@@ -2604,10 +2628,18 @@ function showParkingSearch(){
           </div>
           <div class="parking-result-meta">
             ${price ? `<div class="parking-result-price ${priceClass}">${price}</div>` : ''}
-            <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:4px 10px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
+            <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
           </div>
         </div>`;
       }).join('');
+
+      parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
+        el.addEventListener('click', (e) => {
+          if(e.target.closest('.parking-use-btn')) return;
+          const url = el.dataset.url;
+          if(url) window.open(url, '_blank', 'noopener');
+        });
+      });
 
       parkingSearchResults.querySelectorAll('.parking-use-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -2632,13 +2664,7 @@ function showParkingSearch(){
         });
       });
 
-      parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
-        el.addEventListener('click', () => {
-          const url = el.dataset.url;
-          if(url) window.open(url, '_blank', 'noopener');
-        });
-      });
-    }).catch(e => {
+      }).catch(e => {
       parkingSearchResults.innerHTML = `<div class="parking-result-loading">Search failed: ${e.message}</div>`;
     });
   }
