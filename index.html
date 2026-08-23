@@ -2548,7 +2548,8 @@ function showParkingSearch(){
     parkEndMs = parkStartMs + 4 * 3600000;
   }
 
-  parkingSearchMeta.textContent = `Parking near ${route.fromName}`;
+  const dateLabel = new Intl.DateTimeFormat('en-GB', { weekday:'short', day:'numeric', month:'short' }).format(new Date(parkStartMs));
+  parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${dateLabel}`;
   parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
   parkingSearchPanel.classList.add('open');
   parkingSearchBackdrop.classList.add('open');
@@ -2561,7 +2562,8 @@ function showParkingSearch(){
   function doSearch(startMs, endMs){
     const sISO = new Date(startMs).toISOString();
     const eISO = new Date(endMs).toISOString();
-    parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${fmtHM(new Date(startMs))} – ${fmtHM(new Date(endMs))}`;
+    const searchDateLabel = new Intl.DateTimeFormat('en-GB', { weekday:'short', day:'numeric', month:'short' }).format(new Date(startMs));
+    parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${searchDateLabel} · ${fmtHM(new Date(startMs))} – ${fmtHM(new Date(endMs))}`;
     parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
 
     searchJustPark(lat, lng, sISO, eISO).then(results => {
@@ -2590,7 +2592,8 @@ function showParkingSearch(){
         if(amount < 5) priceClass = 'cheap';
         else if(amount <= 10) priceClass = 'mid';
         else priceClass = 'expensive';
-        return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}">
+        const jpUrl = `https://www.justpark.com/uk/parking/${encodeURIComponent((r.title||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/-+$/,''))}`;
+        return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
           <div style="min-width:0;">
             <div class="parking-result-name">${r.title || 'Parking'}</div>
             ${addr ? `<div class="parking-result-addr">${addr}</div>` : ''}
@@ -2601,12 +2604,15 @@ function showParkingSearch(){
           </div>
           <div class="parking-result-meta">
             ${price ? `<div class="parking-result-price ${priceClass}">${price}</div>` : ''}
+            <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:4px 10px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
           </div>
         </div>`;
       }).join('');
 
-      parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
-        el.addEventListener('click', () => {
+      parkingSearchResults.querySelectorAll('.parking-use-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const el = btn.closest('.parking-result');
           const name = el.dataset.name;
           const rLat = parseFloat(el.dataset.lat);
           const rLng = parseFloat(el.dataset.lng);
@@ -2623,6 +2629,13 @@ function showParkingSearch(){
           persistParking();
           updateParkingWalkEstimate().then(() => scheduleCalc());
           closeParkingModal();
+        });
+      });
+
+      parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
+        el.addEventListener('click', () => {
+          const url = el.dataset.url;
+          if(url) window.open(url, '_blank', 'noopener');
         });
       });
     }).catch(e => {
