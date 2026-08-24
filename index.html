@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>Commute Planner</title>
+<meta name="referrer" content="no-referrer">
 <meta name="description" content="Plan your drive, parking, and train timing in one place. Leave on time with live TfL data where available, route estimates, and arrival alerts.">
 <meta name="robots" content="index,follow">
 <meta name="theme-color" content="#0B0D10">
@@ -661,7 +662,7 @@
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">Until</div>
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
-      <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 10px;">Search</button>
+      <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600;">Search</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -956,7 +957,7 @@ function resolveArriveMoment(arriveByHHMM, now = new Date(), day = selectedTrave
   let target, label;
   if(dateOverride){
     target = new Date(base.getTime() + hh*3600000 + mm*60000);
-    label = dateOverride;
+    label = new Intl.DateTimeFormat('en-GB', { weekday:'short', day:'numeric', month:'short' }).format(target);
   }else if(day === 'today'){
     target = new Date(base.getTime() + hh*3600000 + mm*60000);
     label = 'today';
@@ -2498,6 +2499,7 @@ async function searchJustPark(lat, lng, startDate, endDate){
         id title
         listing{id}
         coordinates{lat lng}
+        unavailable(start_date:$startDate,end_date:$endDate)
         price(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){formatted amount currency}
         distance(lat:$lat,lng:$lng)
         address
@@ -2511,7 +2513,8 @@ async function searchJustPark(lat, lng, startDate, endDate){
   });
   if(!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  const results = data?.data?.search?.results || [];
+  const rawResults = data?.data?.search?.results || [];
+  const results = rawResults.filter(r => !r.unavailable && r.price && r.price.amount != null);
   const ids = results.map(r => r.listing?.id).filter(Boolean);
   if(ids.length){
     const aliases = ids.map((id,i) => `q${i}:listing(id:${id}){canonicalUrl}`).join(' ');
@@ -2570,7 +2573,7 @@ function showParkingSearch(){
 
   const dateLabel = new Intl.DateTimeFormat('en-GB', { weekday:'short', day:'numeric', month:'short' }).format(new Date(parkStartMs));
   parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${dateLabel}`;
-  parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
+  parkingSearchResults.innerHTML = '<div style="text-align:center; padding:24px 16px; color:var(--text-dim); font-size:13px; line-height:1.5;">Check or adjust parking times above, then click <strong>Search</strong> to find available spots.</div>';
   parkingSearchPanel.classList.add('open');
   parkingSearchBackdrop.classList.add('open');
 
@@ -2597,8 +2600,13 @@ function showParkingSearch(){
         r._dist = r.distance != null ? parseFloat(r.distance) : Infinity;
         r._walkMin = estimateWalkMinutes(lat, lng, r.coordinates.lat, r.coordinates.lng);
       });
-      const cheap = withCoords.filter(r => r._amount <= 10).sort((a,b) => a._amount - b._amount || a._dist - b._dist);
-      const pricey = withCoords.filter(r => r._amount > 10).sort((a,b) => a._dist - b._dist);
+      const valid = withCoords.filter(r => r._walkMin <= 20);
+      if(!valid.length){
+        parkingSearchResults.innerHTML = '<div class="parking-result-loading">No parking options within 20 mins walk found</div>';
+        return;
+      }
+      const cheap = valid.filter(r => r._amount <= 10).sort((a,b) => a._amount - b._amount || a._walkMin - b._walkMin || a._dist - b._dist);
+      const pricey = valid.filter(r => r._amount > 10).sort((a,b) => a._dist - b._dist);
       const sorted = [...cheap, ...pricey].slice(0, 10);
 
       parkingSearchResults.innerHTML = sorted.map(r => {
@@ -2612,11 +2620,10 @@ function showParkingSearch(){
         if(amount < 5) priceClass = 'cheap';
         else if(amount <= 10) priceClass = 'mid';
         else priceClass = 'expensive';
-        const arriving = new Date(startMs).toISOString();
-        const leaving = new Date(endMs).toISOString();
-        const jpUrl = r.canonicalUrl
-          ? `${r.canonicalUrl}?arriving=${encodeURIComponent(arriving)}&leaving=${encodeURIComponent(leaving)}&q=${encodeURIComponent(route.fromName||'station')}&coords=${r.coordinates.lat},${r.coordinates.lng}`
-          : `https://www.justpark.com/search?q=${encodeURIComponent(r.title||'parking')}&arriving=${encodeURIComponent(arriving)}&leaving=${encodeURIComponent(leaving)}&coords=${r.coordinates.lat},${r.coordinates.lng}&booking_type=hourly`;
+        const fmtJPDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        const arriving = fmtJPDate(new Date(startMs));
+        const leaving = fmtJPDate(new Date(endMs));
+        const jpUrl = `https://www.justpark.com/search?coords=${r.coordinates.lat},${r.coordinates.lng}&q=${encodeURIComponent(r.title||route.fromName||'parking')}&arriving=${arriving}&leaving=${leaving}&from=${arriving}&to=${leaving}&start_date=${arriving}&end_date=${leaving}`;
         return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
           <div style="min-width:0;">
             <div class="parking-result-name">${r.title || 'Parking'}</div>
@@ -2637,7 +2644,7 @@ function showParkingSearch(){
         el.addEventListener('click', (e) => {
           if(e.target.closest('.parking-use-btn')) return;
           const url = el.dataset.url;
-          if(url) window.open(url, '_blank', 'noopener');
+          if(url) window.open(url, '_blank', 'noreferrer,noopener');
         });
       });
 
@@ -2678,8 +2685,6 @@ function showParkingSearch(){
     if(newEnd <= newStart) newEnd.setTime(newStart.getTime() + 4 * 3600000);
     doSearch(newStart.getTime(), newEnd.getTime());
   };
-
-  doSearch(parkStartMs, parkEndMs);
 }
 
 document.getElementById('closeParkingSearch').addEventListener('click', closeParkingModal);
