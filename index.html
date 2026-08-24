@@ -2077,8 +2077,16 @@ async function renderReturnJourney(returnByHHMM){
     const retFromName = route.toName;
     const retToName = route.fromName;
 
+    const walkBufR = state.parkingWalkAutoMin ?? state.walkBuffer;
+    const driveTR = state.driveTimeAutoMin ?? state.driveTime;
+    const trafficBufR = state.trafficBuffer;
+
+    const retTargetMs = resolveArriveMoment(returnByHHMM, new Date()).target.getTime()
+      - (walkBufR + driveTR + trafficBufR) * 60000;
+    const retTargetHHMM = fmtHM(new Date(retTargetMs));
+
     const journey = await getReverseJourney(
-      returnByHHMM,
+      retTargetHHMM,
       route.toLat, route.toLon, route.toId, route.toName,
       route.fromLat, route.fromLon, route.fromId, route.fromName
     );
