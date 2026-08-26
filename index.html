@@ -1160,6 +1160,13 @@ async function geocodeParkingSpot(query){
     return null;
   }
 }
+// OSRM foot `duration` is unreliable on the public server (can report ~22 km/h walking speeds),
+// so we derive walk time from the street distance at a realistic walking pace (~5 km/h) instead.
+const WALK_SPEED_MS = 1.35;
+function walkMinutesFromRoute(best){
+  if(!best || !best.distance) return null;
+  return Math.max(1, Math.round(best.distance / WALK_SPEED_MS / 60));
+}
 async function updateParkingWalkEstimate(){
   if(route.parkingLat == null || route.parkingLon == null || route.fromLat == null || route.fromLon == null){
     state.parkingWalkAutoMin = null;
@@ -1172,9 +1179,9 @@ async function updateParkingWalkEstimate(){
     const url = `https://router.project-osrm.org/route/v1/foot/${route.parkingLon},${route.parkingLat};${route.fromLon},${route.fromLat}?overview=false&steps=false`;
     const data = await fetchJSONPlain(url);
     const best = data.routes && data.routes[0];
-    if(!best || !best.duration) throw new Error('No route');
-    const walkMin = Math.round(best.duration / 60);
-    state.parkingWalkAutoMin = Math.max(1, walkMin);
+    const walkMin = walkMinutesFromRoute(best);
+    if(walkMin == null) throw new Error('No route');
+    state.parkingWalkAutoMin = walkMin;
     state.parkingWalkLong = walkMin > 20;
   }catch(e){
     state.parkingWalkAutoMin = null;
@@ -2581,8 +2588,9 @@ async function realWalkMinutes(lat1, lng1, lat2, lng2){
   const url = `https://router.project-osrm.org/route/v1/foot/${lng1},${lat1};${lng2},${lat2}?overview=false&steps=false`;
   const data = await fetchJSONPlain(url);
   const best = data.routes && data.routes[0];
-  if(!best || !best.duration) throw new Error('No route');
-  return Math.max(1, Math.round(best.duration / 60));
+  const walkMin = walkMinutesFromRoute(best);
+  if(walkMin == null) throw new Error('No route');
+  return walkMin;
 }
 // Balanced rank: walk minutes + price, each normalized 0–1 over the current set,
 // so a minute walked and a pound spent weigh equally.
