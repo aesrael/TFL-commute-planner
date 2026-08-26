@@ -398,6 +398,12 @@
   .parking-result-price.expensive{color:var(--alert);}
   .parking-result-walk{font-size:10px; color:var(--text-faint); margin-top:2px;}
   .parking-result-loading{font-size:12px; color:var(--text-faint); padding:20px; text-align:center;}
+  .parking-rec-badge{
+    display:inline-block; background:rgba(255,176,32,0.14); border:1px solid var(--amber-dim);
+    color:var(--amber); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    border-radius:4px; padding:2px 6px; margin-left:7px; vertical-align:middle;
+  }
+  .parking-result.recommended{border-color:var(--amber-dim); background:rgba(255,176,32,0.04);}
 </style>
 </head>
 <body>
@@ -1663,19 +1669,23 @@ function legLineId(leg){
   const opt = leg.routeOptions && leg.routeOptions[0];
   return (opt && opt.lineIdentifier && opt.lineIdentifier.id) || null;
 }
-async function fetchNextArrivals(naptanId, lineId, count){
+async function fetchNextArrivals(naptanId, lineId, count, afterMs){
   if(!naptanId) return [];
   try{
     const data = await fetchJSONPlain(`${TFL_BASE}/StopPoint/${naptanId}/Arrivals`);
     let list = Array.isArray(data) ? data : [];
     if(lineId) list = list.filter(a => a.lineId === lineId);
+    if(afterMs != null){
+      const upcoming = list.filter(a => new Date(a.expectedArrival).getTime() >= afterMs);
+      if(upcoming.length > 0) list = upcoming;
+    }
     list.sort((a,b) => a.timeToStation - b.timeToStation);
     return list.slice(0, count).map(a => fmtHM(new Date(a.expectedArrival)));
   }catch(e){
     return [];
   }
 }
-function renderLegRow(leg, idx){
+function renderLegRow(leg, idx, prefix = 'leg-arr'){
   const transit = isTransitLeg(leg);
   const from = (leg.departurePoint && leg.departurePoint.commonName) || '';
   const to = (leg.arrivalPoint && leg.arrivalPoint.commonName) || '';
@@ -1683,20 +1693,21 @@ function renderLegRow(leg, idx){
   const modeLabel = (leg.instruction && leg.instruction.summary) || (leg.mode && leg.mode.name) || 'Leg';
   const timeLabel = leg.departureTime ? fmtHM(new Date(leg.departureTime)) : '';
   const routeNote = [from, (to && to !== from) ? `→ ${to}` : '', dur ? `· ${dur}` : ''].filter(Boolean).join(' ');
-  return `<div class="m-row"><div class="m-time">${timeLabel}</div><div class="m-text">${modeLabel}${transit ? '<span class="m-tag live">Live</span>' : ''}<span class="m-note">${routeNote}</span>${transit ? `<span class="m-note" id="leg-arr-${idx}">Next trains: loading…</span>` : ''}</div></div>`;
+  return `<div class="m-row"><div class="m-time">${timeLabel}</div><div class="m-text">${modeLabel}${transit ? '<span class="m-tag live">Live</span>' : ''}<span class="m-note">${routeNote}</span>${transit ? `<span class="m-note" id="${prefix}-${idx}">Next trains: loading…</span>` : ''}</div></div>`;
 }
-async function patchLegArrivals(journeyLegs){
+async function patchLegArrivals(journeyLegs, prefix = 'leg-arr'){
   journeyLegs.forEach((leg, idx) => {
     if(!isTransitLeg(leg)) return;
-    const el = document.getElementById(`leg-arr-${idx}`);
+    const el = document.getElementById(`${prefix}-${idx}`);
     if(leg.mode && leg.mode.name === 'national-rail'){
       if(el) el.textContent = 'Live times not covered for National Rail — check the operator app';
       return;
     }
     const naptanId = leg.departurePoint && leg.departurePoint.naptanId;
     const lineId = legLineId(leg);
-    fetchNextArrivals(naptanId, lineId, 2).then(times => {
-      const liveEl = document.getElementById(`leg-arr-${idx}`);
+    const afterMs = leg.departureTime ? new Date(leg.departureTime).getTime() : undefined;
+    fetchNextArrivals(naptanId, lineId, 2, afterMs).then(times => {
+      const liveEl = document.getElementById(`${prefix}-${idx}`);
       if(!liveEl) return;
       liveEl.textContent = times.length ? `Next trains: ${times.join(', ')}` : 'Next trains: unavailable';
     });
@@ -1743,6 +1754,7 @@ function addMinutes(date, mins){ return new Date(date.getTime() + mins*60000); }
 /* ---------- Alternatives ---------- */
 let currentAlts = [];
 let altGen = 0;
+let activeAltIdx = 0;
 
 function getAlternatives(arriveByHHMM, flexMin, driveTime, trafficBuffer, walkBuffer, primaryLeaveHomeMs, primaryData){
   if(!flexMin || flexMin <= 0) return Promise.resolve([]);
@@ -1831,9 +1843,8 @@ function getAlternatives(arriveByHHMM, flexMin, driveTime, trafficBuffer, walkBu
     }
 
     unique.forEach((a, i) => {
-      if(a.isPrimary) a.label = 'current';
-      else if(i === 1) a.label = 'early bird';
-      else if(i === unique.length - 1 && unique.length > 2) a.label = 'relaxed';
+      if(i === 0 && a.isPrimary) a.label = 'early bird';
+      else if(i === unique.length - 1 && unique.length > 1) a.label = 'relaxed';
       else a.label = '';
     });
     return unique;
@@ -1889,7 +1900,7 @@ function renderAlternatives(alts){
     altPopover.classList.remove('open');
   }
 
-  function onAltChipClick(e){
+  async function onAltChipClick(e){
     e.stopPropagation();
     const chip = e.currentTarget;
     chip.classList.add('selected');
@@ -1898,7 +1909,16 @@ function renderAlternatives(alts){
     const alt = currentAlts[idx];
     if(!alt) return;
     altPopover.classList.remove('open');
-    if(alt.isPrimary) return;
+    if(alt.isPrimary){
+      if(activeAltIdx === 0) return;
+      activeAltIdx = 0;
+      document.querySelectorAll('.alt-chip').forEach(c => c.classList.remove('active'));
+      const primaryChip = document.querySelector(`.alt-chip[data-alt-idx="0"]`);
+      if(primaryChip) primaryChip.classList.add('active');
+      await runCalc();
+      return;
+    }
+    activeAltIdx = idx;
     activateAlternative(alt, idx);
   }
   altChips.querySelectorAll('.alt-chip').forEach(chip => chip.addEventListener('click', onAltChipClick));
@@ -2117,15 +2137,18 @@ async function renderReturnJourney(returnByHHMM){
     ];
 
     const returnTrackId = 'returnTrack';
+    const retLegsHtml = legs.map((leg, idx) => renderLegRow(leg, idx, 'ret-leg-arr')).join('');
     returnBody.innerHTML = `
       <div class="timeline-wrap">
         <div class="timeline-track" id="${returnTrackId}"></div>
       </div>
       <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
+      ${retLegsHtml}
       <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
       <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
     `;
+    patchLegArrivals(legs, 'ret-leg-arr');
 
     const retTrack = document.getElementById(returnTrackId);
     if(retTrack){
@@ -2158,6 +2181,7 @@ async function renderReturnJourney(returnByHHMM){
 }
 
 async function runCalc(){
+  activeAltIdx = 0;
   renderFlaps('----', true);
   statusLine.textContent = '';
   statusLine.className = 'fetch-note';
@@ -2552,6 +2576,21 @@ function estimateWalkMinutes(lat1, lng1, lat2, lng2){
   const miles = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return Math.round(miles * 20);
 }
+// Actual street walking time (OSRM foot) between a spot and the station.
+async function realWalkMinutes(lat1, lng1, lat2, lng2){
+  const url = `https://router.project-osrm.org/route/v1/foot/${lng1},${lat1};${lng2},${lat2}?overview=false&steps=false`;
+  const data = await fetchJSONPlain(url);
+  const best = data.routes && data.routes[0];
+  if(!best || !best.duration) throw new Error('No route');
+  return Math.max(1, Math.round(best.duration / 60));
+}
+// Balanced rank: walk minutes + price, each normalized 0–1 over the current set,
+// so a minute walked and a pound spent weigh equally.
+function scoreParkingSpot(r, minWalk, spanWalk, minAmt, spanAmt){
+  const w = spanWalk ? (r._walkMin - minWalk) / spanWalk : 0;
+  const a = Number.isFinite(r._amount) && spanAmt ? (r._amount - minAmt) / spanAmt : 1;
+  return w + a;
+}
 
 function showParkingSearch(){
   if(!route.fromId || !route.toId) return;
@@ -2597,7 +2636,7 @@ function showParkingSearch(){
     parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${searchDateLabel} · ${fmtHM(new Date(startMs))} – ${fmtHM(new Date(endMs))}`;
     parkingSearchResults.innerHTML = '<div class="parking-result-loading">Searching JustPark &amp; calculating walk times…</div>';
 
-    searchJustPark(lat, lng, sISO, eISO).then(results => {
+    searchJustPark(lat, lng, sISO, eISO).then(async results => {
       if(!results.length){
         parkingSearchResults.innerHTML = '<div class="parking-result-loading">No results found</div>';
         return;
@@ -2613,18 +2652,32 @@ function showParkingSearch(){
         parkingSearchResults.innerHTML = '<div class="parking-result-loading">No parking options within 20 mins walk found</div>';
         return;
       }
-      const cheap = valid.filter(r => r._amount <= 10).sort((a,b) => a._amount - b._amount || a._walkMin - b._walkMin || a._dist - b._dist);
-      const pricey = valid.filter(r => r._amount > 10).sort((a,b) => a._dist - b._dist);
-      const sorted = [...cheap, ...pricey].slice(0, 10);
+      // Real street-walk for the ~6 most promising candidates (cheap to call, much closer to the
+      // OSRM figure the journey will actually use), then re-rank everything on the balanced score.
+      const candidates = valid.slice().sort((a,b) => a._walkMin - b._walkMin || (a._amount - b._amount)).slice(0, 6);
+      const realWalks = candidates.map(async r => {
+        try{ r._walkMin = await realWalkMinutes(lat, lng, r.coordinates.lat, r.coordinates.lng); }
+        catch(e){}
+      });
+      await Promise.all(realWalks);
 
-      parkingSearchResults.innerHTML = sorted.map(r => {
+      const amts = valid.filter(r => Number.isFinite(r._amount)).map(r => r._amount);
+      const minAmt = Math.min(...amts), maxAmt = Math.max(...amts);
+      const minWalk = Math.min(...valid.map(r => r._walkMin)), maxWalk = Math.max(...valid.map(r => r._walkMin));
+      const spanAmt = (maxAmt - minAmt) || 1;
+      const spanWalk = (maxWalk - minWalk) || 1;
+      valid.forEach(r => r._score = scoreParkingSpot(r, minWalk, spanWalk, minAmt, spanAmt));
+      const sorted = valid.sort((a,b) => a._score - b._score || a._walkMin - b._walkMin || a._amount - b._amount).slice(0, 10);
+
+      parkingSearchResults.innerHTML = sorted.map((r, i) => {
         const distMi = r._dist < Infinity ? r._dist.toFixed(1) + ' mi' : '';
         const price = r.price && r.price.formatted ? r.price.formatted : '';
         const amount = r._amount;
         const addr = r.address || '';
         const walkMin = r._walkMin;
         const walkStr = walkMin > 0 ? `${walkMin} min walk` : '';
-        let priceClass = '';
+        const recommended = i === 0;
+        let priceClass = 'cheap';
         if(amount < 5) priceClass = 'cheap';
         else if(amount <= 10) priceClass = 'mid';
         else priceClass = 'expensive';
@@ -2632,9 +2685,9 @@ function showParkingSearch(){
         const arriving = fmtJPDate(new Date(startMs));
         const leaving = fmtJPDate(new Date(endMs));
         const jpUrl = `https://www.justpark.com/search?coords=${r.coordinates.lat},${r.coordinates.lng}&q=${encodeURIComponent(r.title||route.fromName||'parking')}&arriving=${arriving}&leaving=${leaving}&from=${arriving}&to=${leaving}&start_date=${arriving}&end_date=${leaving}`;
-        return `<div class="parking-result" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
+        return `<div class="parking-result${recommended ? ' recommended' : ''}" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
           <div style="min-width:0;">
-            <div class="parking-result-name">${r.title || 'Parking'}</div>
+            <div class="parking-result-name">${r.title || 'Parking'}${recommended ? '<span class="parking-rec-badge">Recommended</span>' : ''}</div>
             ${addr ? `<div class="parking-result-addr">${addr}</div>` : ''}
             <div style="display:flex; gap:8px; margin-top:3px; flex-wrap:wrap;">
               ${walkStr ? `<span class="parking-result-walk">${walkStr}</span>` : ''}
