@@ -2096,6 +2096,7 @@ const manifestBody = document.getElementById('manifestBody');
 // Cache of the last successfully fetched plan, so UI-only events (flip, disarm,
 // off-path) re-render locally instead of repeating the same TfL/OSRM calls.
 let lastPlan = null;
+let lastRetPlan = null;
 
 /* ---------- Return journey ---------- */
 let returnGen = 0;
@@ -2160,38 +2161,18 @@ async function renderReturnJourney(returnByHHMM){
 
     const returnTrackId = 'returnTrack';
     const retLegsHtml = legs.map((leg, idx) => renderLegRow(leg, idx, 'ret-leg-arr')).join('');
-    returnBody.innerHTML = `
-      <div class="timeline-wrap">
-        <div class="timeline-track" id="${returnTrackId}"></div>
-      </div>
-      <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
-      ${retLegsHtml}
-      <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
-      <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
-      <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
-    `;
+    // Store the return journey's renderable data so the unified "Full breakdown"
+    // panel can show it when the flip is set to Return.
+    lastRetPlan = {
+      jDepart, jArrive, jDuration: jDuration,
+      retFromName, retToName,
+      walkBuf, driveT, trafficBuf,
+      walkToCarDate, arriveHomeDate, leaveDestDate,
+      legs, detail
+    };
     patchLegArrivals(legs, 'ret-leg-arr');
 
-    const retTrack = document.getElementById(returnTrackId);
-    if(retTrack){
-      retTrack.innerHTML = '';
-      retTimeline.forEach(s => {
-        const div = document.createElement('div');
-        div.className = 't-stop';
-        div.innerHTML = `<div class="t-icon">${iconSVG(s.icon)}</div><div class="t-time">${s.time}</div><div class="t-label">${s.label}</div>`;
-        retTrack.appendChild(div);
-      });
-    }
-
-    // Only show the return panel when the flip is set to Return; otherwise keep
-    // it hidden (it's still computed for provisioning).
-    if((typeof OT !== 'undefined') && OT.view === 'ret'){
-      returnPanel.style.display = 'block';
-      returnPanel.classList.add('open');
-    } else {
-      returnPanel.style.display = 'none';
-      returnPanel.classList.remove('open');
-    }
+    if((typeof OT !== 'undefined') && OT.view === 'ret' && !OT.enabled) renderPlannedView();
 
     // Schedule leave-station reminder
     const now = Date.now();
@@ -2246,8 +2227,45 @@ function renderPlan(){
   manifestBody.innerHTML = `${manifestRows}${legsHtml}`;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
+  document.getElementById('manifestHeader').querySelector('h2').textContent = 'Full breakdown';
 
   if(live && journeyLegs.length) patchLegArrivals(journeyLegs);
+}
+// Render the unified "Full breakdown" + journey timeline from the return plan when
+// the flip is set to Return.
+function renderRetPlan(){
+  if(!lastRetPlan) return;
+  const { jDepart, jArrive, jDuration, retFromName, retToName, walkBuf, driveT, trafficBuf,
+    walkToCarDate, arriveHomeDate, legs, detail } = lastRetPlan;
+  const retTimeline = [
+    {icon:'train', time:fmtHM(jDepart), label:retFromName},
+    {icon:'train', time:fmtHM(jArrive), label:retToName},
+    {icon:'walk', time:fmtHM(walkToCarDate), label:'Walk to car'},
+    {icon:'home', time:fmtHM(arriveHomeDate), label:'Home'}
+  ];
+  const track = document.getElementById('timelineTrack');
+  if(track){
+    track.innerHTML = '';
+    retTimeline.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 't-stop';
+      div.innerHTML = `<div class="t-icon">${iconSVG(s.icon)}</div><div class="t-time">${s.time}</div><div class="t-label">${s.label}</div>`;
+      track.appendChild(div);
+    });
+    document.getElementById('timelinePanel').style.display = 'block';
+  }
+  const retLegsHtml = legs.map((leg, idx) => renderLegRow(leg, idx, 'ret-leg-arr')).join('');
+  manifestBody.innerHTML = `
+    <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
+    ${retLegsHtml}
+    <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
+  `;
+  manifestPanel.style.display = 'block';
+  manifestPanel.classList.add('open');
+  document.getElementById('manifestHeader').querySelector('h2').textContent = 'Return journey';
+  if(legs.length) patchLegArrivals(legs, 'ret-leg-arr');
 }
 async function runCalc(){
   activeAltIdx = 0;
@@ -2471,7 +2489,13 @@ function setHeroLabel(text){ const l=document.getElementById('heroLabel'); if(l)
 // Re-render from the cached plan without hitting the network. If there's no
 // cache yet (e.g. first time), fall back to a real fetch.
 function renderCached(){
-  if(lastPlan){ setHeroLabel(OT.view === 'ret' ? 'Plan return' : 'Leave home by'); renderPlan(); renderChips(); }
+  if(OT.view === 'ret' && lastRetPlan){
+    setHeroLabel('Plan return');
+    renderRetPlan();
+    renderChips();
+    return;
+  }
+  if(lastPlan){ setHeroLabel('Leave home by'); renderPlan(); renderChips(); }
   else runCalc();
 }
 // Show the planned time for the active direction (when not live-tracking yet):
@@ -2480,14 +2504,14 @@ function renderPlannedView(){
   if(OT.enabled) return; // live view handles its own flaps
   const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
   if(!j){ if(OT.view === 'ret'){ renderFlaps('----', true); setHeroLabel('Plan return'); return; } renderCached(); return; }
-  if(OT.view === 'ret'){
+if(OT.view === 'ret'){
     const arr = new Date(j.arrivalDateTime);
     setHeroLabel('Getting back by');
     renderFlaps(fmtHM(arr), true);
-    // Arrival flap has no "leave now" meaning; drop the outbound status pill.
     const wrap = document.getElementById('statusPillWrap'); if(wrap) wrap.innerHTML = '';
     const sub = document.getElementById('resultSub');
     if(sub) sub.innerHTML = `Return plan · home by <b>${fmtHM(arr)}</b>. Hit "I'm on my way" to track it.`;
+    if(lastRetPlan) renderRetPlan(); // Full breakdown shows the return journey
   } else {
     renderCached();
   }
