@@ -661,7 +661,8 @@
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">Until</div>
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
-      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600; white-space:nowrap; display:inline-flex; align-items:center; gap:6px;" onclick="renderPrevParking()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Previous</button>
+      <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 10px; font-size:11px; white-space:nowrap; display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg> Search</button>
+      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 10px; font-size:11px; white-space:nowrap; display:inline-flex; align-items:center; gap:6px;" onclick="renderPrevParking()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Prev</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -3232,6 +3233,16 @@ function showParkingSearch(){
 
   window._doParkingSearch = doSearch;
   window._parkingLatLng = { lat, lng };
+  const searchBtn = document.getElementById('updateParkingTimeBtn');
+  if(searchBtn) searchBtn.onclick = () => {
+    const [sH, sM] = (startTimeEl.value || '00:00').split(':').map(Number);
+    const [eH, eM] = (endTimeEl.value || '00:00').split(':').map(Number);
+    const { target: d } = resolveArriveMoment(arriveBy, new Date());
+    const newStart = new Date(d); newStart.setHours(sH, sM, 0, 0);
+    const newEnd = new Date(d); newEnd.setHours(eH, eM, 0, 0);
+    if(newEnd <= newStart) newEnd.setTime(newStart.getTime() + 4 * 3600000);
+    doSearch(newStart.getTime(), newEnd.getTime());
+  };
   // Auto-show: previous spots if you have them for this station, otherwise search nearby
   const _hasPrev = getUsedParking().some(s => !s.station || (s.station||'').trim().toLowerCase() === (route.fromName||'').trim().toLowerCase());
   if(_hasPrev){
