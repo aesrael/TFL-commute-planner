@@ -3243,13 +3243,8 @@ function showParkingSearch(){
     if(newEnd <= newStart) newEnd.setTime(newStart.getTime() + 4 * 3600000);
     doSearch(newStart.getTime(), newEnd.getTime());
   };
-  // Auto-show: previous spots if you have them for this station, otherwise search nearby
-  const _hasPrev = getUsedParking().some(s => !s.station || (s.station||'').trim().toLowerCase() === (route.fromName||'').trim().toLowerCase());
-  if(_hasPrev){
-    renderPrevParking();
-  } else {
-    doSearch(parkStartMs, parkEndMs);
-  }
+  // Default view is Find (nearby search) — Previous is via the Prev button
+  doSearch(parkStartMs, parkEndMs);
   // Re-check when time window changes
   const _onTimeChange = () => {
     const [sH, sM] = (startTimeEl.value || '00:00').split(':').map(Number);
