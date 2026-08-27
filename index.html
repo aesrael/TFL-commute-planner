@@ -2932,27 +2932,29 @@ function renderPrevParking(){
   // Live availability check for each saved spot using the modal's time window
   list.forEach((s, i) => {
     if(!startMs || !endMs){ const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Set a time window to check availability'; return; }
-    checkSpotAvailability(s, startMs, endMs).then(r => {
-      const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
-      const row = t.closest('.parking-result');
-      if(r === null) t.textContent = 'Availability unknown';
-      else if(r.available){ t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`; t.style.color = 'var(--ok)'; }
-      else {
-        t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)';
-        if(row){
-          row.style.opacity = '0.55'; row.style.borderColor = 'rgba(227,81,47,0.45)'; row.style.background = 'rgba(227,81,47,0.06)';
-          const nameEl = row.querySelector('.parking-result-name');
-          if(nameEl && !nameEl.querySelector('.parking-unavail')){
-            const b=document.createElement('span');
-            b.className='parking-rec-badge parking-unavail';
-            b.style.background='rgba(227,81,47,0.14)'; b.style.borderColor='var(--alert)'; b.style.color='var(--alert)';
-            b.textContent='Unavailable';
-            nameEl.appendChild(b);
+    setTimeout(() => {
+      checkSpotAvailability(s, startMs, endMs).then(r => {
+        const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
+        const row = t.closest('.parking-result');
+        if(r === null) t.textContent = 'Availability unknown — tap to check on JustPark';
+        else if(r.available){ t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`; t.style.color = 'var(--ok)'; }
+        else {
+          t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)';
+          if(row){
+            row.style.opacity = '0.55'; row.style.borderColor = 'rgba(227,81,47,0.45)'; row.style.background = 'rgba(227,81,47,0.06)';
+            const nameEl = row.querySelector('.parking-result-name');
+            if(nameEl && !nameEl.querySelector('.parking-unavail')){
+              const b=document.createElement('span');
+              b.className='parking-rec-badge parking-unavail';
+              b.style.background='rgba(227,81,47,0.14)'; b.style.borderColor='var(--alert)'; b.style.color='var(--alert)';
+              b.textContent='Unavailable';
+              nameEl.appendChild(b);
+            }
+            const btn=row.querySelector('.parking-use-btn'); if(btn){ btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed'; btn.title='Not available for this time'; }
           }
-          const btn=row.querySelector('.parking-use-btn'); if(btn){ btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed'; btn.title='Not available for this time'; }
         }
-      }
-    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability unknown — tap to check on JustPark'; });
+      }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability unknown — tap to check on JustPark'; });
+    }, i*280);
   });
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
