@@ -662,7 +662,7 @@
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
       <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600;">Search</button>
-      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:6px 10px; font-size:11px; white-space:nowrap;">Prev</button>
+      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="renderPrevParking()">Prev</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -2859,12 +2859,15 @@ async function checkSpotAvailability(s, startMs, endMs){
   return { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
 }
 function renderPrevParking(){
-  const station = route.fromName || '';
+  try {
+  const station = (route.fromName || '').trim();
   const all = getUsedParking();
-  const list = station ? all.filter(s => !s.station || s.station === station) : all;
-  parkingSearchMeta.textContent = station ? `Previous parking near ${station}` : 'Previous parking spots';
+  let list = station ? all.filter(s => !s.station || (s.station||'').trim().toLowerCase() === station.toLowerCase()) : all;
+  const showingAllFallback = !list.length && all.length;
+  if(showingAllFallback) list = all;
+  parkingSearchMeta.textContent = showingAllFallback ? `Previous parking (no spots for ${station} — showing all)` : (station ? `Previous parking near ${station}` : 'Previous parking spots');
   if(!list.length){
-    parkingSearchResults.innerHTML = '<div class="parking-result-loading">No previous spots for this station yet. Use a spot to save it here.</div>';
+    parkingSearchResults.innerHTML = '<div class="parking-result-loading">No previous spots yet. Use a spot to save it here.</div>';
     return;
   }
   let html = '';
@@ -2924,6 +2927,7 @@ function renderPrevParking(){
     e.stopPropagation();
     applyUsedPark(parseInt(b.closest('.parking-result').dataset.previdx, 10));
   }));
+  } catch(e){ parkingSearchResults.innerHTML = '<div class="parking-result-loading">Error: '+ (e.message||e) +'</div>'; console.error(e); }
 }
 const showPrevParkingBtn = document.getElementById('showPrevParkingBtn');
 if(showPrevParkingBtn) showPrevParkingBtn.addEventListener('click', renderPrevParking);
