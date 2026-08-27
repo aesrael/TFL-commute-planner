@@ -661,8 +661,7 @@
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">Until</div>
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
-      <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600;">Search</button>
-      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:6px 10px; font-size:11px; white-space:nowrap;" onclick="renderPrevParking()">Prev</button>
+      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600; white-space:nowrap;" onclick="renderPrevParking()">Previous</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -3080,7 +3079,7 @@ function showParkingSearch(){
 
   const dateLabel = new Intl.DateTimeFormat('en-GB', { weekday:'short', day:'numeric', month:'short' }).format(new Date(parkStartMs));
   parkingSearchMeta.textContent = `Parking near ${route.fromName} · ${dateLabel}`;
-  parkingSearchResults.innerHTML = '<div style="text-align:center; padding:24px 16px; color:var(--text-dim); font-size:13px; line-height:1.5;">Check or adjust parking times above, then click <strong>Search</strong> to find available spots.</div>';
+  parkingSearchResults.innerHTML = '<div class="parking-result-loading">Loading…</div>';
   parkingSearchPanel.classList.add('open');
   parkingSearchBackdrop.classList.add('open');
   // Previous button is always visible next to Search; filtering happens on click
@@ -3130,7 +3129,7 @@ function showParkingSearch(){
       valid.forEach(r => r._score = scoreParkingSpot(r, minWalk, spanWalk, minAmt, spanAmt));
       const sorted = valid.sort((a,b) => a._score - b._score || a._walkMin - b._walkMin || a._amount - b._amount).slice(0, 10);
 
-      parkingSearchResults.innerHTML = sorted.map((r, i) => {
+        parkingSearchResults.innerHTML = sorted.map((r, i) => {
         const distMi = r._dist < Infinity ? r._dist.toFixed(1) + ' mi' : '';
         const price = r.price && r.price.formatted ? r.price.formatted : '';
         const amount = r._amount;
@@ -3199,15 +3198,29 @@ function showParkingSearch(){
     });
   }
 
-  document.getElementById('updateParkingTimeBtn').onclick = () => {
+  // Auto-show: previous spots if you have them for this station, otherwise search nearby
+  const _hasPrev = getUsedParking().some(s => !s.station || (s.station||'').trim().toLowerCase() === (route.fromName||'').trim().toLowerCase());
+  if(_hasPrev){
+    renderPrevParking();
+  } else {
+    doSearch(parkStartMs, parkEndMs);
+  }
+  // Re-check when time window changes
+  const _onTimeChange = () => {
     const [sH, sM] = (startTimeEl.value || '00:00').split(':').map(Number);
     const [eH, eM] = (endTimeEl.value || '00:00').split(':').map(Number);
     const { target: d } = resolveArriveMoment(arriveBy, new Date());
     const newStart = new Date(d); newStart.setHours(sH, sM, 0, 0);
     const newEnd = new Date(d); newEnd.setHours(eH, eM, 0, 0);
     if(newEnd <= newStart) newEnd.setTime(newStart.getTime() + 4 * 3600000);
-    doSearch(newStart.getTime(), newEnd.getTime());
+    if((document.getElementById('parkingSearchMeta').textContent||'').includes('Previous')){
+      renderPrevParking();
+    } else {
+      doSearch(newStart.getTime(), newEnd.getTime());
+    }
   };
+  startTimeEl.onchange = _onTimeChange;
+  endTimeEl.onchange = _onTimeChange;
 }
 
 document.getElementById('closeParkingSearch').addEventListener('click', closeParkingModal);
