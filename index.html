@@ -1103,11 +1103,15 @@ syncRouteUI();
 syncStationEditUI();
 
 function debounce(fn, wait){ let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; }
-// 5-minute in-memory cache for API responses (TfL, OSRM, Nominatim, TomTom, etc.)
+// 5-minute cache for API responses — in-memory + persisted to localStorage so refresh hits
 const API_CACHE_TTL_MS = 5*60*1000;
+const LS_API_CACHE = 'commuter.apiCache.v1';
 const _apiCache = new Map();
-function _cacheGet(k){ const e=_apiCache.get(k); if(!e) return null; if(Date.now()-e.ts > API_CACHE_TTL_MS){ _apiCache.delete(k); return null; } return e.data; }
-function _cacheSet(k,v){ _apiCache.set(k, {data:v, ts:Date.now()}); }
+(function _loadApiCache(){ try{ const raw=localStorage.getItem(LS_API_CACHE); if(!raw) return; const obj=JSON.parse(raw); for(const [k,v] of Object.entries(obj)){ if(v && v.ts && Date.now()-v.ts < API_CACHE_TTL_MS) _apiCache.set(k, v); } }catch(e){} })();
+function _persistCache(){ try{ const o={}; let n=0; for(const [k,v] of _apiCache){ if(n++>60) break; o[k]=v; } localStorage.setItem(LS_API_CACHE, JSON.stringify(o)); }catch(e){} }
+function _cacheGet(k){ const e=_apiCache.get(k); if(!e) return null; if(Date.now()-e.ts > API_CACHE_TTL_MS){ _apiCache.delete(k); _persistCache(); return null; } return e.data; }
+function _cacheSet(k,v){ _apiCache.set(k, {data:v, ts:Date.now()}); _persistCache(); }
+function _bucketIso(iso){ try{ const d=new Date(iso); d.setSeconds(0,0); d.setMinutes(Math.floor(d.getMinutes()/5)*5); return d.toISOString(); }catch(e){ return iso; } }
 async function fetchJSON(url){
   const u0 = new URL(url);
   const appId = tflAppIdInput.value.trim() || loadString(LS_KEYS.appId);
@@ -2953,8 +2957,10 @@ function closeParkingModal(){
 }
 
 async function searchJustPark(lat, lng, startDate, endDate){
-  const jpKey = `jp:${lat},${lng},${startDate},${endDate}`;
+  const bStart = _bucketIso(startDate), bEnd = _bucketIso(endDate);
+  const jpKey = `jp:${lat},${lng},${bStart},${bEnd}`;
   const jpHit = _cacheGet(jpKey); if(jpHit) return jpHit;
+  startDate = bStart; endDate = bEnd;
   const query = `query GetSearch($lat:Float!,$lng:Float!,$startDate:String!,$endDate:String!){
     search(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){
       results{
