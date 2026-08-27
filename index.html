@@ -2875,9 +2875,17 @@ async function checkSpotAvailability(s, startMs, endMs){
   if(!res.ok) throw new Error('JustPark check failed');
   const data = await res.json();
   const hits = data?.data?.search?.results || [];
-  const match = hits.find(r => (r.title || '').trim().toLowerCase() === (s.name || '').trim().toLowerCase());
-  if(!match){ _cacheSet(ck, null); return null; }
-  const out = { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
+  let match = null, bestDist = Infinity;
+  for(const r of hits){
+    if(!r.coordinates || r.coordinates.lat == null || r.coordinates.lng == null) continue;
+    const dLat = (r.coordinates.lat - s.lat) * Math.PI/180;
+    const dLng = (r.coordinates.lng - s.lng) * Math.PI/180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(s.lat*Math.PI/180)*Math.cos(r.coordinates.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+    const dist = 3959 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    if(dist < bestDist){ bestDist = dist; match = r; }
+  }
+  if(!match || bestDist > 0.12){ _cacheSet(ck, null); return null; }
+  const out = { available: !match.unavailable && match.price && match.price.amount != null, price: match.price ? match.price.formatted : '' };
   _cacheSet(ck, out);
   return out;
 }
