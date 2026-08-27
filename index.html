@@ -661,7 +661,7 @@
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">Until</div>
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
-      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600; white-space:nowrap;" onclick="renderPrevParking()">Previous</button>
+      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600; white-space:nowrap; display:inline-flex; align-items:center; gap:6px;" onclick="renderPrevParking()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Previous</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -2944,32 +2944,48 @@ function renderPrevParking(){
   parkingSearchResults.innerHTML = html;
 
   // Live availability check for each saved spot using the modal's time window
-  list.forEach((s, i) => {
-    if(!startMs || !endMs){ const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Set a time window to check availability'; return; }
-    setTimeout(() => {
-      checkSpotAvailability(s, startMs, endMs).then(r => {
-        const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
-        const row = t.closest('.parking-result');
-        if(r === null) t.textContent = 'Availability unknown — tap to check on JustPark';
-        else if(r.available){ t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`; t.style.color = 'var(--ok)'; }
+  // Single search at station for all previous spots — 1 request, uses same cache as main search
+  const _prevLat = route.fromLat, _prevLng = route.fromLon;
+  if(!startMs || !endMs){
+    list.forEach((_, i) => { const t=document.getElementById(`prev-avail-${i}`); if(t) t.textContent='Set a time window to check availability'; });
+  } else if(_prevLat == null || _prevLng == null){
+    list.forEach((_, i) => { const t=document.getElementById(`prev-avail-${i}`); if(t) t.textContent='Availability unknown — tap to check on JustPark'; });
+  } else {
+    const bS = _bucketIso(new Date(startMs).toISOString()), bE = _bucketIso(new Date(endMs).toISOString());
+    searchJustPark(_prevLat, _prevLng, bS, bE).then(results => {
+      const byId = new Map(results.map(r => [String(r.listing?.id || r.id), r]));
+      list.forEach((s, i) => {
+        const t=document.getElementById(`prev-avail-${i}`); if(!t) return;
+        const row=t.closest('.parking-result');
+        let r = s.listingId ? byId.get(String(s.listingId)) : null;
+        if(!r){
+          let best=null, bestDist=Infinity;
+          for(const cand of results){
+            if(!cand.coordinates) continue;
+            const dLat=(cand.coordinates.lat - s.lat)*Math.PI/180, dLng=(cand.coordinates.lng - s.lng)*Math.PI/180;
+            const a=Math.sin(dLat/2)**2 + Math.cos(s.lat*Math.PI/180)*Math.cos(cand.coordinates.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+            const dist=3959*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+            if(dist<bestDist){ bestDist=dist; best=cand; }
+          }
+          if(best && bestDist<=0.12) r=best;
+        }
+        if(!r){ t.textContent='Availability unknown — tap to check on JustPark'; return; }
+        const available = !r.unavailable && r.price && r.price.amount != null;
+        if(available){ t.textContent=`✓ Available ${r.price.formatted ? '· '+r.price.formatted : ''}`; t.style.color='var(--ok)'; }
         else {
-          t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)';
+          t.textContent='✗ Not available for this time'; t.style.color='var(--alert)';
           if(row){
-            row.style.opacity = '0.55'; row.style.borderColor = 'rgba(227,81,47,0.45)'; row.style.background = 'rgba(227,81,47,0.06)';
-            const nameEl = row.querySelector('.parking-result-name');
+            row.style.opacity='0.55'; row.style.borderColor='rgba(227,81,47,0.45)'; row.style.background='rgba(227,81,47,0.06)';
+            const nameEl=row.querySelector('.parking-result-name');
             if(nameEl && !nameEl.querySelector('.parking-unavail')){
-              const b=document.createElement('span');
-              b.className='parking-rec-badge parking-unavail';
-              b.style.background='rgba(227,81,47,0.14)'; b.style.borderColor='var(--alert)'; b.style.color='var(--alert)';
-              b.textContent='Unavailable';
-              nameEl.appendChild(b);
+              const b=document.createElement('span'); b.className='parking-rec-badge parking-unavail'; b.style.background='rgba(227,81,47,0.14)'; b.style.borderColor='var(--alert)'; b.style.color='var(--alert)'; b.textContent='Unavailable'; nameEl.appendChild(b);
             }
             const btn=row.querySelector('.parking-use-btn'); if(btn){ btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed'; btn.title='Not available for this time'; }
           }
         }
-      }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability unknown — tap to check on JustPark'; });
-    }, i*280);
-  });
+      });
+    }).catch(()=>{ list.forEach((_,i)=>{ const t=document.getElementById(`prev-avail-${i}`); if(t) t.textContent='Availability unknown — tap to check on JustPark'; }); });
+  }
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
     el.addEventListener('click', (e) => {
@@ -3214,6 +3230,8 @@ function showParkingSearch(){
     });
   }
 
+  window._doParkingSearch = doSearch;
+  window._parkingLatLng = { lat, lng };
   // Auto-show: previous spots if you have them for this station, otherwise search nearby
   const _hasPrev = getUsedParking().some(s => !s.station || (s.station||'').trim().toLowerCase() === (route.fromName||'').trim().toLowerCase());
   if(_hasPrev){
