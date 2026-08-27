@@ -2870,6 +2870,14 @@ function renderPrevParking(){
     parkingSearchResults.innerHTML = '<div class="parking-result-loading">No previous spots yet. Use a spot to save it here.</div>';
     return;
   }
+  const startTimeEl = document.getElementById('parkingStartTime');
+  const endTimeEl = document.getElementById('parkingEndTime');
+  let startMs = null, endMs = null;
+  if(startTimeEl && endTimeEl && startTimeEl.value && endTimeEl.value){
+    const d = resolveArriveMoment(document.getElementById('arriveBy').value || '09:50', new Date()).target;
+    const parseTime = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t); if(!m) return null; const dt = new Date(d); dt.setHours(+m[1], +m[2], 0, 0); return dt.getTime(); };
+    startMs = parseTime(startTimeEl.value); endMs = parseTime(endTimeEl.value);
+  }
   let html = '';
   const fmtJPDate2 = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   list.forEach((s, i) => {
@@ -2896,14 +2904,6 @@ function renderPrevParking(){
   parkingSearchResults.innerHTML = html;
 
   // Live availability check for each saved spot using the modal's time window
-  const startTimeEl = document.getElementById('parkingStartTime');
-  const endTimeEl = document.getElementById('parkingEndTime');
-  let startMs = null, endMs = null;
-  if(startTimeEl && endTimeEl && startTimeEl.value && endTimeEl.value){
-    const d = resolveArriveMoment(document.getElementById('arriveBy').value || '09:50', new Date()).target;
-    const parseTime = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t); if(!m) return null; const dt = new Date(d); dt.setHours(+m[1], +m[2], 0, 0); return dt.getTime(); };
-    startMs = parseTime(startTimeEl.value); endMs = parseTime(endTimeEl.value);
-  }
   list.forEach((s, i) => {
     if(!startMs || !endMs){ const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Set a time window to check availability'; return; }
     checkSpotAvailability(s, startMs, endMs).then(r => {
