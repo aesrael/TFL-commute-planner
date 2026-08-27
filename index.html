@@ -662,6 +662,7 @@
       </button>
     </div>
     <div class="parking-panel-meta" id="parkingSearchMeta"></div>
+    <button type="button" id="showPrevParkingBtn" style="display:none; width:100%; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--text-dim); border-radius:10px; padding:10px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; margin-bottom:10px;">Previous spots</button>
     <div class="parking-time-row" style="display:flex; align-items:center; gap:10px; margin-bottom:14px; background:var(--panel-sunken); padding:10px 12px; border-radius:10px; border:1px solid var(--hairline);">
       <div style="flex:1;">
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">From</div>
@@ -713,7 +714,9 @@ const LS_KEYS = {
   tomtomUsage: 'commuter.tomtom.usage.v1',
   parkingOverride: 'commuter.parking.override.v1',
   returnBy: 'commuter.returnBy.v1',
-  trackView: 'commuter.trackView.v1'
+  trackView: 'commuter.trackView.v1',
+  usedParking: 'commuter.usedParking.v1',
+  onTrack: 'commuter.onTrack.v1'
 };
 let route = {
   fromName: '', toName: '',
@@ -2090,6 +2093,9 @@ const statusLine = document.getElementById('statusLine');
 const resultSub = document.getElementById('resultSub');
 const manifestPanel = document.getElementById('manifestPanel');
 const manifestBody = document.getElementById('manifestBody');
+// Cache of the last successfully fetched plan, so UI-only events (flip, disarm,
+// off-path) re-render locally instead of repeating the same TfL/OSRM calls.
+let lastPlan = null;
 
 /* ---------- Return journey ---------- */
 let returnGen = 0;
@@ -2177,8 +2183,15 @@ async function renderReturnJourney(returnByHHMM){
       });
     }
 
-    returnPanel.style.display = 'block';
-    returnPanel.classList.add('open');
+    // Only show the return panel when the flip is set to Return; otherwise keep
+    // it hidden (it's still computed for provisioning).
+    if((typeof OT !== 'undefined') && OT.view === 'ret'){
+      returnPanel.style.display = 'block';
+      returnPanel.classList.add('open');
+    } else {
+      returnPanel.style.display = 'none';
+      returnPanel.classList.remove('open');
+    }
 
     // Schedule leave-station reminder
     const now = Date.now();
@@ -2196,6 +2209,46 @@ async function renderReturnJourney(returnByHHMM){
   }
 }
 
+function renderPlan(){
+  if(!lastPlan) return;
+  const {
+    leaveHomeDate, parkArriveDate, platformArriveDate, journeyDepartDate, journeyArriveDate,
+    journeyDurationMin, journeyDetail, journeyLegs, live, flexNote, arriveLabel, hasParking,
+    driveTime, trafficBuffer, walkBuffer
+  } = lastPlan;
+  const PARKING_BUFFER_MIN = 3;
+  renderFlaps(fmtHM(leaveHomeDate), false);
+  renderStatusPill(leaveHomeDate, arriveLabel);
+  resultSub.innerHTML = `Arrives <b>${route.toName}</b> ${arriveLabel} ${fmtHM(journeyArriveDate)}.${flexNote}`;
+
+  const timelineStops = hasParking ? [
+    {icon:'home', time:fmtHM(leaveHomeDate), label:'Leave home'},
+    {icon:'car', time:fmtHM(parkArriveDate), label:'Park'},
+    {icon:'walk', time:fmtHM(platformArriveDate), label:'Platform'},
+    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
+  ] : [
+    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
+    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
+  ];
+  renderTimeline(timelineStops);
+
+  const manifestRows = hasParking ? `
+    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveSource === 'tomtom' ? 'Traffic-aware via TomTom (for your planned arrival time)' : state.driveSource === 'osrm' ? 'Static route via OSRM (no live traffic)' : state.driveSource === 'osrm-throttled' ? 'Static route via OSRM (traffic check rate-limited)' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
+  ` : '';
+  const legsHtml = (live && journeyLegs.length)
+    ? journeyLegs.map((leg, idx) => renderLegRow(leg, idx)).join('') +
+      `<div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`
+    : `<div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
+       <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`;
+  manifestBody.innerHTML = `${manifestRows}${legsHtml}`;
+  manifestPanel.style.display = 'block';
+  manifestPanel.classList.add('open');
+
+  if(live && journeyLegs.length) patchLegArrivals(journeyLegs);
+}
 async function runCalc(){
   activeAltIdx = 0;
   renderFlaps('----', true);
@@ -2257,45 +2310,19 @@ async function runCalc(){
   }
 
   const leaveHHMM = fmtHM(leaveHomeDate);
-  renderFlaps(leaveHHMM, false);
-  renderStatusPill(leaveHomeDate, arriveLabel);
-  resultSub.innerHTML = `Arrives <b>${route.toName}</b> ${arriveLabel} ${fmtHM(journeyArriveDate)}.${flexNote}`;
+  lastPlan = {
+    live, arriveBy, arriveDate, arriveLabel,
+    journeyDepartDate, journeyArriveDate, journeyDurationMin, journeyDetail, journeyLegs,
+    leaveHomeDate, parkArriveDate, platformArriveDate,
+    hasParking: route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0,
+    flexNote, driveTime, trafficBuffer, walkBuffer, flexMin, totalLeadMin
+  };
+  renderPlan();
   renderChips();
 
-  const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
-  const timelineStops = hasParking ? [
-    {icon:'home', time:fmtHM(leaveHomeDate), label:'Leave home'},
-    {icon:'car', time:fmtHM(parkArriveDate), label:'Park'},
-    {icon:'walk', time:fmtHM(platformArriveDate), label:'Platform'},
-    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
-    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
-  ] : [
-    {icon:'train', time:fmtHM(journeyDepartDate), label:route.fromName},
-    {icon:'flag', time:fmtHM(journeyArriveDate), label:route.toName}
-  ];
-  renderTimeline(timelineStops);
-
-  const manifestRows = hasParking ? `
-    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text">Leave home<span class="m-note">${state.driveSource === 'tomtom' ? 'Traffic-aware via TomTom (for your planned arrival time)' : state.driveSource === 'osrm' ? 'Static route via OSRM (no live traffic)' : state.driveSource === 'osrm-throttled' ? 'Static route via OSRM (traffic check rate-limited)' : 'Manual estimate'} · Drive ${driveTime} min + ${trafficBuffer} min buffer</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
-  ` : '';
-  const legsHtml = (live && journeyLegs.length)
-    ? journeyLegs.map((leg, idx) => renderLegRow(leg, idx)).join('') +
-      `<div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`
-    : `<div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
-       <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`;
-  manifestBody.innerHTML = `${manifestRows}${legsHtml}`;
-  manifestPanel.style.display = 'block';
-  manifestPanel.classList.add('open');
-
-  if(live && !statusLine.textContent) statusLine.textContent = 'Live journey times pulled from TfL just now.';
-  if(live && journeyLegs.length) patchLegArrivals(journeyLegs);
-
-  // Generate alternatives (non-blocking, fire and forget)
-  if(live && flexMin > 0){
+  if(lastPlan.live && lastPlan.flexMin > 0){
     const gen = ++altGen;
-    getAlternatives(arriveBy, flexMin, driveTime, trafficBuffer, walkBuffer, leaveHomeDate.getTime(), { journeyDepartDate, journeyArriveDate, journeyDurationMin, journeyDetail, totalLeadMin })
+    getAlternatives(lastPlan.arriveBy, lastPlan.flexMin, lastPlan.driveTime, lastPlan.trafficBuffer, lastPlan.walkBuffer, lastPlan.leaveHomeDate.getTime(), { journeyDepartDate: lastPlan.journeyDepartDate, journeyArriveDate: lastPlan.journeyArriveDate, journeyDurationMin: lastPlan.journeyDurationMin, journeyDetail: lastPlan.journeyDetail, totalLeadMin: lastPlan.totalLeadMin })
       .then(alts => { if(gen === altGen) renderAlternatives(alts); })
       .catch(() => { if(gen === altGen) renderAlternatives([]); });
   } else {
@@ -2304,7 +2331,7 @@ async function runCalc(){
 
   // Return journey (non-blocking)
   const returnBy = document.getElementById('returnBy').value || '';
-  if(live && returnBy){
+  if(lastPlan.live && returnBy){
     renderReturnJourney(returnBy);
   } else {
     const rp = document.getElementById('returnPanel');
@@ -2313,7 +2340,7 @@ async function runCalc(){
   }
 
   // Schedule leave-home reminder
-  scheduleReminders(leaveHomeDate.getTime(), null);
+  scheduleReminders(lastPlan.leaveHomeDate.getTime(), null);
 }
 document.getElementById('calcBtn').addEventListener('click', () => {
   assumptionsPanel.classList.remove('open');
@@ -2382,6 +2409,15 @@ function setFlip(){
   const ret = OT.view === 'ret';
   trackFlipBtn.textContent = ret ? '⤾ Outbound' : '⤾ Return';
   trackFlipBtn.classList.toggle('active', ret);
+  syncReturnPanel();
+}
+// Return panel shows only when the flip is on Return.
+function syncReturnPanel(){
+  const rp = document.getElementById('returnPanel');
+  if(!rp) return;
+  const show = OT.view === 'ret';
+  rp.style.display = show ? 'block' : 'none';
+  if(show) rp.classList.add('open'); else rp.classList.remove('open');
 }
 function setOtLive(active){
   if(!otBtn) return;
@@ -2389,13 +2425,61 @@ function setOtLive(active){
   otBtn.style.borderColor = active ? 'var(--ok)' : 'var(--amber-dim)';
   otBtn.style.color = active ? 'var(--ok)' : 'var(--amber)';
 }
+// Persist the "on my way" state plus the target arrive-by so a refresh restores it,
+// and we can auto-clear ~1h after the trip's arrive-by has passed.
+function persistOnTrack(){
+  const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
+  const arriveByMs = j && j.arrivalDateTime ? new Date(j.arrivalDateTime).getTime() : null;
+  saveJson(LS_KEYS.onTrack, {
+    enabled: OT.enabled,
+    view: OT.view,
+    arriveByMs,
+    at: Date.now()
+  });
+}
+function clearPersistedOnTrack(){
+  try{ saveString(LS_KEYS.onTrack, ''); }catch(e){}
+}
+function restorePersistedOnTrack(){
+  const rec = loadJson(LS_KEYS.onTrack);
+  if(!rec || !rec.enabled) return;
+  // Auto-clear if the arrive-by time + 1h has already passed (for outbound or return).
+  const hour = 3600000;
+  const elapsed = Date.now() - (rec.arriveByMs || 0);
+  if(rec.arriveByMs && elapsed > hour){
+    clearPersistedOnTrack();
+    return;
+  }
+  OT.enabled = true; OT.view = rec.view === 'ret' ? 'ret' : 'out';
+  saveString(LS_KEYS.trackView, OT.view);
+  const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
+  if(j) provisionOnTrack(j, OT.view);
+  setFlip();
+  setOtLive(true);
+  startWatchIfNeeded();
+  setOtHeroStatus('Watching for your station…', 'warn');
+  // Schedule a re-arm to auto-clear after the arrive-by + 1h window.
+  scheduleAutoClear(rec.arriveByMs);
+}
+function scheduleAutoClear(arriveByMs){
+  clearTimeout(OT.timer);
+  if(!arriveByMs){ OT.timer = null; return; }
+  const delay = (arriveByMs + 3600000) - Date.now();
+  OT.timer = setTimeout(() => { if(OT.enabled) disarmOnTrack('expired'); clearPersistedOnTrack(); }, Math.max(1000, delay));
+}
 function setHeroLabel(text){ const l=document.getElementById('heroLabel'); if(l) l.textContent=text; }
+// Re-render from the cached plan without hitting the network. If there's no
+// cache yet (e.g. first time), fall back to a real fetch.
+function renderCached(){
+  if(lastPlan){ setHeroLabel(OT.view === 'ret' ? 'Plan return' : 'Leave home by'); renderPlan(); renderChips(); }
+  else runCalc();
+}
 // Show the planned time for the active direction (when not live-tracking yet):
 // outbound -> the leave-home time; return -> the get-back arrival time.
 function renderPlannedView(){
   if(OT.enabled) return; // live view handles its own flaps
   const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
-  if(!j){ if(OT.view === 'ret'){ renderFlaps('----', true); setHeroLabel('Plan return'); return; } runCalc(); return; }
+  if(!j){ if(OT.view === 'ret'){ renderFlaps('----', true); setHeroLabel('Plan return'); return; } renderCached(); return; }
   if(OT.view === 'ret'){
     const arr = new Date(j.arrivalDateTime);
     setHeroLabel('Getting back by');
@@ -2405,7 +2489,7 @@ function renderPlannedView(){
     const sub = document.getElementById('resultSub');
     if(sub) sub.innerHTML = `Return plan · home by <b>${fmtHM(arr)}</b>. Hit "I'm on my way" to track it.`;
   } else {
-    runCalc(); // recalculates the outbound leave-home flaps
+    renderCached();
   }
 }
 function syncHeroHeader(){
@@ -2429,6 +2513,7 @@ function armOnTrack(){
   syncHeroHeader();
   refreshOtExpiry();
   setOtLive(true);
+  persistOnTrack();
   startWatchIfNeeded();
   setOtHeroStatus('Watching for your station…', 'warn');
 }
@@ -2437,15 +2522,26 @@ function disarmOnTrack(reason){
   OT.enabled = false; OT.onTrack = false; OT.lastIdx = -1;
   if(OT.timer){ clearTimeout(OT.timer); OT.timer = null; }
   setOtLive(false);
+  clearPersistedOnTrack();
   syncHeroHeader();
   if(reason === 'arrived'){ resultSub.innerHTML = `Arrived at <b>${otEndName()}</b>. Back to your normal plan.`; }
-  runCalc();
+  renderCached();
   stopWatchIfIdle();
 }
 function refreshOtExpiry(){
   clearTimeout(OT.timer);
-  const base = OT.baseArriveMs ? OT.baseArriveMs + OT_EXPIRY_MIN*60000 : Date.now() + OT_FALLBACK_EXPIRY_MS;
-  OT.timer = setTimeout(() => disarmOnTrack('expired'), Math.max(1000, base - Date.now()));
+  // Once we're on track (sensed at a station and moving along the route), keep
+  // tracking indefinitely -- only arrival or clear off-path departure ends it.
+  if(OT.onTrack){ OT.timer = null; return; }
+  // Before any station is sensed, apply a long "armed but no signal" cap so we
+  // don't stay stuck forever if we never got a fix. Never instant-kill.
+  let delayMs;
+  if(OT.baseArriveMs && OT.baseArriveMs > Date.now() + 60000){
+    delayMs = (OT.baseArriveMs + OT_EXPIRY_MIN*60000) - Date.now();
+  } else {
+    delayMs = OT_FALLBACK_EXPIRY_MS;
+  }
+  OT.timer = setTimeout(() => disarmOnTrack('expired'), Math.max(30000, delayMs));
 }
 function setOtHeroStatus(text, cls){
   const wrap = document.getElementById('statusPillWrap');
@@ -2503,6 +2599,7 @@ if(otBtn) otBtn.addEventListener('click', () => {
 })();
 setFlip();
 syncHeroHeader();
+restorePersistedOnTrack();
 
 /* ================= Arrival Alerts ================= */
 const GEOFENCE_RADIUS_M = 200;
@@ -2719,6 +2816,108 @@ const parkingSearchResults = document.getElementById('parkingSearchResults');
 const parkingSearchMeta = document.getElementById('parkingSearchMeta');
 const parkingSearchBackdrop = document.getElementById('parkingSearchBackdrop');
 
+function getUsedParking(){
+  return loadJson(LS_KEYS.usedParking) || [];
+}
+function saveUsedParking(list){
+  saveJson(LS_KEYS.usedParking, list.slice(0, 12));
+}
+function recordUsedParking(name, lat, lng, walkMin){
+  if(!name) return;
+  const station = route.fromName || '';
+  const list = getUsedParking().filter(s => s.name !== name);
+  list.unshift({ name, lat, lng, walk: walkMin, station, usedAt: Date.now() });
+  saveUsedParking(list);
+}
+function applyUsedPark(idx){
+  const p = getUsedParking()[idx];
+  if(!p) return;
+  parkingSpotNameInput.value = p.name;
+  route.parkingLat = p.lat;
+  route.parkingLon = p.lng;
+  if(Number.isFinite(p.walk)){ state.parkingWalkAutoMin = p.walk; state.parkingWalkLong = p.walk > 20; }
+  syncParkingUI(); updateParkingLabels(); persistParking();
+  updateParkingWalkEstimate().then(() => scheduleCalc());
+  closeParkingModal();
+}
+// Check live availability/price of a saved spot via JustPark for the requested window.
+async function checkSpotAvailability(s, startMs, endMs){
+  const res = await fetch(JUSTPARK_GQL, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      query:`query($lat:Float!,$lng:Float!,$startDate:String!,$endDate:String!){search(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){results{title unavailable price(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){amount formatted}}}}`,
+      variables:{ lat: s.lat, lng: s.lng, startDate: new Date(startMs).toISOString(), endDate: new Date(endMs).toISOString() }
+    })
+  });
+  if(!res.ok) throw new Error('JustPark check failed');
+  const data = await res.json();
+  const hits = (data?.data?.search?.results || []).filter(r => r.price && r.price.amount != null);
+  const match = hits.find(r => (r.title || '').toLowerCase() === (s.name || '').toLowerCase());
+  if(!match) return null;
+  return { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
+}
+function renderPrevParking(){
+  const btn = document.getElementById('showPrevParkingBtn');
+  const station = route.fromName || '';
+  const all = getUsedParking();
+  const list = station ? all.filter(s => !s.station || s.station === station) : all;
+  parkingSearchMeta.textContent = station ? `Previous parking near ${station}` : 'Previous parking spots';
+  if(!list.length){
+    parkingSearchResults.innerHTML = '<div class="parking-result-loading">No previous spots for this station yet. Use a spot to save it here.</div>';
+    if(btn) btn.style.display = 'none';
+    return;
+  }
+  if(btn) btn.style.display = 'block';
+  let html = '';
+  list.forEach((s, i) => {
+    const walkStr = s.walk != null ? `${s.walk} min walk` : '';
+    html += `<div class="parking-result" data-previdx="${i}">
+      <div style="min-width:0;">
+        <div class="parking-result-name">${s.name || 'Parking'}</div>
+        ${walkStr ? `<div style="font-size:11px; color:var(--text-dim); margin-top:2px;">${walkStr}</div>` : ''}
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;" id="prev-avail-${i}">Checking availability…</div>
+      </div>
+      <div class="parking-result-meta">
+        <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
+      </div>
+    </div>`;
+  });
+  parkingSearchResults.innerHTML = html;
+
+  // Live availability check for each saved spot using the modal's time window
+  const startTimeEl = document.getElementById('parkingStartTime');
+  const endTimeEl = document.getElementById('parkingEndTime');
+  let startMs = null, endMs = null;
+  if(startTimeEl && endTimeEl && startTimeEl.value && endTimeEl.value){
+    const d = resolveArriveMoment(document.getElementById('arriveBy').value || '09:50', new Date()).target;
+    const parseTime = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(t); if(!m) return null; const dt = new Date(d); dt.setHours(+m[1], +m[2], 0, 0); return dt.getTime(); };
+    startMs = parseTime(startTimeEl.value); endMs = parseTime(endTimeEl.value);
+  }
+  list.forEach((s, i) => {
+    if(!startMs || !endMs){ const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Set a time window to check availability'; return; }
+    checkSpotAvailability(s, startMs, endMs).then(r => {
+      const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
+      if(r === null) t.textContent = 'Availability unknown';
+      else if(r.available) t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`;
+      else t.textContent = '✗ Not available';
+    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = ''; });
+  });
+
+  parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if(e.target.closest('.parking-use-btn')) return;
+      applyUsedPark(parseInt(el.dataset.previdx, 10));
+    });
+  });
+  parkingSearchResults.querySelectorAll('.parking-use-btn').forEach(b => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyUsedPark(parseInt(b.closest('.parking-result').dataset.previdx, 10));
+  }));
+}
+const showPrevParkingBtn = document.getElementById('showPrevParkingBtn');
+if(showPrevParkingBtn) showPrevParkingBtn.addEventListener('click', renderPrevParking);
+
 function closeParkingModal(){
   parkingSearchPanel.classList.remove('open');
   parkingSearchBackdrop.classList.remove('open');
@@ -2824,6 +3023,10 @@ function showParkingSearch(){
   parkingSearchResults.innerHTML = '<div style="text-align:center; padding:24px 16px; color:var(--text-dim); font-size:13px; line-height:1.5;">Check or adjust parking times above, then click <strong>Search</strong> to find available spots.</div>';
   parkingSearchPanel.classList.add('open');
   parkingSearchBackdrop.classList.add('open');
+  const prevBtn = document.getElementById('showPrevParkingBtn');
+  const _stat = route.fromName || '';
+  const _hasForStation = getUsedParking().some(s => !s.station || s.station === _stat);
+  if(prevBtn) prevBtn.style.display = _hasForStation ? 'block' : 'none';
 
   const startTimeEl = document.getElementById('parkingStartTime');
   const endTimeEl = document.getElementById('parkingEndTime');
@@ -2925,6 +3128,7 @@ function showParkingSearch(){
             state.parkingWalkAutoMin = walkMin;
             state.parkingWalkLong = walkMin > 20;
           }
+          recordUsedParking(name, rLat, rLng, walkMin);
           syncParkingUI();
           updateParkingLabels();
           persistParking();
