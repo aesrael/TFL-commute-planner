@@ -1108,7 +1108,17 @@ const API_CACHE_TTL_MS = 5*60*1000;
 const LS_API_CACHE = 'commuter.apiCache.v1';
 const _apiCache = new Map();
 (function _loadApiCache(){ try{ const raw=localStorage.getItem(LS_API_CACHE); if(!raw) return; const obj=JSON.parse(raw); for(const [k,v] of Object.entries(obj)){ if(v && v.ts && Date.now()-v.ts < API_CACHE_TTL_MS) _apiCache.set(k, v); } }catch(e){} })();
-function _persistCache(){ try{ const o={}; let n=0; for(const [k,v] of _apiCache){ if(n++>60) break; o[k]=v; } localStorage.setItem(LS_API_CACHE, JSON.stringify(o)); }catch(e){} }
+function _persistCache(){
+  try{
+    const o={}; let n=0;
+    for(const [k,v] of _apiCache){ if(n++>30) break; o[k]=v; }
+    localStorage.setItem(LS_API_CACHE, JSON.stringify(o));
+  }catch(e){
+    // Quota exceeded — drop the API cache, but never touch usedParking
+    try{ localStorage.removeItem(LS_API_CACHE); }catch(_e){}
+    _apiCache.clear();
+  }
+}
 function _cacheGet(k){ const e=_apiCache.get(k); if(!e) return null; if(Date.now()-e.ts > API_CACHE_TTL_MS){ _apiCache.delete(k); _persistCache(); return null; } return e.data; }
 function _cacheSet(k,v){ _apiCache.set(k, {data:v, ts:Date.now()}); _persistCache(); }
 function _bucketIso(iso){ try{ const d=new Date(iso); d.setSeconds(0,0); d.setMinutes(Math.floor(d.getMinutes()/5)*5); return d.toISOString(); }catch(e){ return iso; } }
@@ -2822,7 +2832,10 @@ const parkingSearchMeta = document.getElementById('parkingSearchMeta');
 const parkingSearchBackdrop = document.getElementById('parkingSearchBackdrop');
 
 function getUsedParking(){
-  return loadJson(LS_KEYS.usedParking) || [];
+  const raw = loadJson(LS_KEYS.usedParking);
+  if(!Array.isArray(raw)) return [];
+  // Migrate old entries (walkMin) + ensure station field exists
+  return raw.map(s => ({ ...s, walk: s.walk != null ? s.walk : s.walkMin, station: s.station || '' }));
 }
 function saveUsedParking(list){
   saveJson(LS_KEYS.usedParking, list.slice(0, 12));
@@ -2921,7 +2934,7 @@ function renderPrevParking(){
       else {
         t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)';
         if(row){
-          row.style.opacity = '0.65'; row.style.borderColor = 'rgba(227,81,47,0.35)';
+          row.style.opacity = '0.55'; row.style.borderColor = 'rgba(227,81,47,0.45)'; row.style.background = 'rgba(227,81,47,0.06)';
           const nameEl = row.querySelector('.parking-result-name');
           if(nameEl && !nameEl.querySelector('.parking-unavail')){
             const b=document.createElement('span');
@@ -2930,9 +2943,10 @@ function renderPrevParking(){
             b.textContent='Unavailable';
             nameEl.appendChild(b);
           }
+          const btn=row.querySelector('.parking-use-btn'); if(btn){ btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed'; btn.title='Not available for this time'; }
         }
       }
-    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = ''; });
+    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability check failed'; });
   });
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
