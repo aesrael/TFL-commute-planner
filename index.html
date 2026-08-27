@@ -2824,9 +2824,10 @@ function saveUsedParking(list){
   saveJson(LS_KEYS.usedParking, list.slice(0, 12));
 }
 function recordUsedParking(name, lat, lng, walkMin){
-  if(!name) return;
-  const station = route.fromName || '';
-  const list = getUsedParking().filter(s => s.name !== name);
+  if(!name || lat == null || lng == null) return;
+  const station = (route.fromName || '').trim();
+  const norm = v => String(v||'').trim().toLowerCase();
+  const list = getUsedParking().filter(s => !(norm(s.name)===norm(name) && s.lat===lat && s.lng===lng));
   list.unshift({ name, lat, lng, walk: walkMin, station, usedAt: Date.now() });
   saveUsedParking(list);
 }
@@ -2882,6 +2883,7 @@ function renderPrevParking(){
   const fmtJPDate2 = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   list.forEach((s, i) => {
     const walkStr = s.walk != null ? `${s.walk} min walk` : '';
+    const savedStr = s.usedAt ? new Date(s.usedAt).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '';
     let jpUrl = '';
     if(startMs && endMs){
       const arriving = fmtJPDate2(new Date(startMs));
@@ -2894,6 +2896,7 @@ function renderPrevParking(){
       <div style="min-width:0;">
         <div class="parking-result-name">${s.name || 'Parking'}</div>
         ${walkStr ? `<div style="font-size:11px; color:var(--text-dim); margin-top:2px;">${walkStr}</div>` : ''}
+        ${savedStr ? `<div style="font-size:10px; color:var(--text-faint); margin-top:2px;">Saved ${savedStr}</div>` : ''}
         <div style="font-size:11px; color:var(--text-dim); margin-top:4px;" id="prev-avail-${i}">Checking availability…</div>
       </div>
       <div class="parking-result-meta">
@@ -2909,10 +2912,22 @@ function renderPrevParking(){
     checkSpotAvailability(s, startMs, endMs).then(r => {
       const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
       const row = t.closest('.parking-result');
-      const btn = row ? row.querySelector('.parking-use-btn') : null;
       if(r === null) t.textContent = 'Availability unknown';
       else if(r.available){ t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`; t.style.color = 'var(--ok)'; }
-      else { t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)'; if(row) row.style.opacity = '0.65'; if(row) row.style.borderColor = 'rgba(227,81,47,0.35)'; }
+      else {
+        t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)';
+        if(row){
+          row.style.opacity = '0.65'; row.style.borderColor = 'rgba(227,81,47,0.35)';
+          const nameEl = row.querySelector('.parking-result-name');
+          if(nameEl && !nameEl.querySelector('.parking-unavail')){
+            const b=document.createElement('span');
+            b.className='parking-rec-badge parking-unavail';
+            b.style.background='rgba(227,81,47,0.14)'; b.style.borderColor='var(--alert)'; b.style.color='var(--alert)';
+            b.textContent='Unavailable';
+            nameEl.appendChild(b);
+          }
+        }
+      }
     }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = ''; });
   });
 
