@@ -2856,9 +2856,18 @@ function renderPrevParking(){
     return;
   }
   let html = '';
+  const fmtJPDate2 = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   list.forEach((s, i) => {
     const walkStr = s.walk != null ? `${s.walk} min walk` : '';
-    html += `<div class="parking-result" data-previdx="${i}">
+    let jpUrl = '';
+    if(startMs && endMs){
+      const arriving = fmtJPDate2(new Date(startMs));
+      const leaving = fmtJPDate2(new Date(endMs));
+      jpUrl = `https://www.justpark.com/search?coords=${s.lat},${s.lng}&q=${encodeURIComponent(s.name||'parking')}&arriving=${arriving}&leaving=${leaving}&from=${arriving}&to=${leaving}&start_date=${arriving}&end_date=${leaving}`;
+    } else {
+      jpUrl = `https://www.justpark.com/search?coords=${s.lat},${s.lng}&q=${encodeURIComponent(s.name||'parking')}`;
+    }
+    html += `<div class="parking-result" data-previdx="${i}" data-url="${jpUrl}">
       <div style="min-width:0;">
         <div class="parking-result-name">${s.name || 'Parking'}</div>
         ${walkStr ? `<div style="font-size:11px; color:var(--text-dim); margin-top:2px;">${walkStr}</div>` : ''}
@@ -2884,16 +2893,19 @@ function renderPrevParking(){
     if(!startMs || !endMs){ const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Set a time window to check availability'; return; }
     checkSpotAvailability(s, startMs, endMs).then(r => {
       const t = document.getElementById(`prev-avail-${i}`); if(!t) return;
+      const row = t.closest('.parking-result');
+      const btn = row ? row.querySelector('.parking-use-btn') : null;
       if(r === null) t.textContent = 'Availability unknown';
-      else if(r.available) t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`;
-      else t.textContent = '✗ Not available';
+      else if(r.available){ t.textContent = `✓ Available ${r.price ? '· ' + r.price : ''}`; t.style.color = 'var(--ok)'; }
+      else { t.textContent = '✗ Not available for this time'; t.style.color = 'var(--alert)'; if(row) row.style.opacity = '0.65'; if(row) row.style.borderColor = 'rgba(227,81,47,0.35)'; }
     }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = ''; });
   });
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
     el.addEventListener('click', (e) => {
       if(e.target.closest('.parking-use-btn')) return;
-      applyUsedPark(parseInt(el.dataset.previdx, 10));
+      const url = el.dataset.url;
+      if(url) window.open(url, '_blank', 'noreferrer,noopener');
     });
   });
   parkingSearchResults.querySelectorAll('.parking-use-btn').forEach(b => b.addEventListener('click', (e) => {
