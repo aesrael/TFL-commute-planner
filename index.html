@@ -608,17 +608,6 @@
     </div>
   </div>
 
-  <!-- Return journey -->
-  <div class="panel" id="returnPanel" style="display:none;">
-    <div class="panel-header" id="returnHeader">
-      <h2>Return journey</h2>
-      <span class="chev">▾</span>
-    </div>
-    <div class="panel-body">
-      <div id="returnBody"></div>
-    </div>
-  </div>
-
   <!-- Arrival alerts -->
   <div class="panel open">
     <div class="panel-header"><h2>Arrival alerts</h2></div>
@@ -662,7 +651,6 @@
       </button>
     </div>
     <div class="parking-panel-meta" id="parkingSearchMeta"></div>
-    <button type="button" id="showPrevParkingBtn" style="display:none; width:100%; border:1px solid var(--hairline); background:var(--panel-raised); color:var(--text-dim); border-radius:10px; padding:10px; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; margin-bottom:10px;">Previous spots</button>
     <div class="parking-time-row" style="display:flex; align-items:center; gap:10px; margin-bottom:14px; background:var(--panel-sunken); padding:10px 12px; border-radius:10px; border:1px solid var(--hairline);">
       <div style="flex:1;">
         <div style="font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--text-dim); margin-bottom:4px;">From</div>
@@ -674,6 +662,7 @@
         <input type="time" id="parkingEndTime" class="time-input" style="width:100%; font-size:14px; padding:6px 8px;">
       </div>
       <button type="button" id="updateParkingTimeBtn" class="mode-btn" style="margin-top:14px; padding:8px 14px; font-weight:600;">Search</button>
+      <button type="button" id="showPrevParkingBtn" class="mode-btn" style="margin-top:14px; padding:8px 10px; font-weight:600; background:var(--panel-raised); border:1px solid var(--hairline); color:var(--text-dim); white-space:nowrap;">Previous</button>
     </div>
     <div class="parking-panel-results" id="parkingSearchResults"></div>
   </div>
@@ -1285,7 +1274,6 @@ const assumptionsPanel = document.getElementById('assumptionsPanel');
 wirePanelToggle('assumptionsHeader', assumptionsPanel);
 wirePanelToggle('timelineHeader', document.getElementById('timelinePanel'));
 wirePanelToggle('manifestHeader', document.getElementById('manifestPanel'));
-wirePanelToggle('returnHeader', document.getElementById('returnPanel'));
 
 document.getElementById('chipRow').addEventListener('click', () => {
   assumptionsPanel.classList.add('open');
@@ -2101,13 +2089,9 @@ let lastRetPlan = null;
 /* ---------- Return journey ---------- */
 let returnGen = 0;
 async function renderReturnJourney(returnByHHMM){
-  const returnPanel = document.getElementById('returnPanel');
-  const returnBody = document.getElementById('returnBody');
   const hasParking = route.parkingLat != null && route.parkingLon != null && route.parkingLat !== 0 && route.parkingLon !== 0;
 
   if(!route.fromId || !route.toId || !hasParking || !returnByHHMM){
-    returnPanel.style.display = 'none';
-    returnPanel.classList.remove('open');
     return;
   }
 
@@ -2185,8 +2169,6 @@ async function renderReturnJourney(returnByHHMM){
     }
   }catch(e){
     if(gen !== returnGen) return;
-    returnPanel.style.display = 'none';
-    returnPanel.classList.remove('open');
   }
 }
 
@@ -2264,7 +2246,7 @@ function renderRetPlan(){
   `;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
-  document.getElementById('manifestHeader').querySelector('h2').textContent = 'Return journey';
+  document.getElementById('manifestHeader').querySelector('h2').textContent = 'Full breakdown';
   if(legs.length) patchLegArrivals(legs, 'ret-leg-arr');
 }
 async function runCalc(){
@@ -2272,8 +2254,6 @@ async function runCalc(){
   renderFlaps('----', true);
   statusLine.textContent = '';
   statusLine.className = 'fetch-note';
-  document.getElementById('returnPanel').style.display = 'none';
-  document.getElementById('returnPanel').classList.remove('open');
 
   if(!route.fromId || !route.toId){
     statusLine.textContent = 'Enter your origin and destination to calculate your commute.';
@@ -2347,15 +2327,9 @@ async function runCalc(){
     renderAlternatives([]);
   }
 
-  // Return journey (non-blocking)
+  // Return journey (non-blocking) — rendered into the unified Full breakdown when flipped
   const returnBy = document.getElementById('returnBy').value || '';
-  if(lastPlan.live && returnBy){
-    renderReturnJourney(returnBy);
-  } else {
-    const rp = document.getElementById('returnPanel');
-    rp.style.display = 'none';
-    rp.classList.remove('open');
-  }
+  if(lastPlan.live && returnBy) renderReturnJourney(returnBy);
 
   // Schedule leave-home reminder
   scheduleReminders(lastPlan.leaveHomeDate.getTime(), null);
@@ -2427,15 +2401,6 @@ function setFlip(){
   const ret = OT.view === 'ret';
   trackFlipBtn.textContent = ret ? '⤾ Outbound' : '⤾ Return';
   trackFlipBtn.classList.toggle('active', ret);
-  syncReturnPanel();
-}
-// Return panel shows only when the flip is on Return.
-function syncReturnPanel(){
-  const rp = document.getElementById('returnPanel');
-  if(!rp) return;
-  const show = OT.view === 'ret';
-  rp.style.display = show ? 'block' : 'none';
-  if(show) rp.classList.add('open'); else rp.classList.remove('open');
 }
 function setOtLive(active){
   if(!otBtn) return;
@@ -2882,17 +2847,14 @@ async function checkSpotAvailability(s, startMs, endMs){
   return { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
 }
 function renderPrevParking(){
-  const btn = document.getElementById('showPrevParkingBtn');
   const station = route.fromName || '';
   const all = getUsedParking();
   const list = station ? all.filter(s => !s.station || s.station === station) : all;
   parkingSearchMeta.textContent = station ? `Previous parking near ${station}` : 'Previous parking spots';
   if(!list.length){
     parkingSearchResults.innerHTML = '<div class="parking-result-loading">No previous spots for this station yet. Use a spot to save it here.</div>';
-    if(btn) btn.style.display = 'none';
     return;
   }
-  if(btn) btn.style.display = 'block';
   let html = '';
   list.forEach((s, i) => {
     const walkStr = s.walk != null ? `${s.walk} min walk` : '';
@@ -3047,10 +3009,7 @@ function showParkingSearch(){
   parkingSearchResults.innerHTML = '<div style="text-align:center; padding:24px 16px; color:var(--text-dim); font-size:13px; line-height:1.5;">Check or adjust parking times above, then click <strong>Search</strong> to find available spots.</div>';
   parkingSearchPanel.classList.add('open');
   parkingSearchBackdrop.classList.add('open');
-  const prevBtn = document.getElementById('showPrevParkingBtn');
-  const _stat = route.fromName || '';
-  const _hasForStation = getUsedParking().some(s => !s.station || s.station === _stat);
-  if(prevBtn) prevBtn.style.display = _hasForStation ? 'block' : 'none';
+  // Previous button is always visible next to Search; filtering happens on click
 
   const startTimeEl = document.getElementById('parkingStartTime');
   const endTimeEl = document.getElementById('parkingEndTime');
