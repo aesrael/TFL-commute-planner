@@ -398,6 +398,8 @@
   .parking-result-price.expensive{color:var(--alert);}
   .parking-result-walk{font-size:10px; color:var(--text-faint); margin-top:2px;}
   .parking-result-loading{font-size:12px; color:var(--text-faint); padding:20px; text-align:center;}
+  #trackFlipBtn.active{color:var(--amber); border-color:var(--amber-dim); background:rgba(255,176,32,0.08);}
+  #trackFlipBtn:disabled{opacity:.4; cursor:not-allowed;}
   .parking-rec-badge{
     display:inline-block; background:rgba(255,176,32,0.14); border:1px solid var(--amber-dim);
     color:var(--amber); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
@@ -481,11 +483,13 @@
   </div>
 
   <!-- HERO: always visible, auto-updates -->
-  <div class="hero">
-    <div class="hero-label">Leave home by</div>
+  <div class="hero" style="position:relative;">
+    <button type="button" id="trackFlipBtn" title="Toggle outbound / return" style="position:absolute; top:12px; right:12px; display:inline-flex; align-items:center; gap:5px; border:1px solid var(--hairline); background:var(--panel-sunken); color:var(--text-dim); border-radius:16px; padding:5px 10px; font-size:10px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; cursor:pointer;">↵ Return</button>
+    <div class="hero-label" id="heroLabel">Leave home by</div>
     <div class="flap-row" id="flapRow"></div>
     <div id="statusPillWrap"></div>
     <div class="hero-sub" id="resultSub">Enter your origin and destination to get started.</div>
+    <button type="button" id="onTrackBtn" style="margin-top:12px; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--amber-dim); background:rgba(255,176,32,0.06); color:var(--amber); border-radius:10px; padding:9px 14px; font-size:11.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; cursor:pointer;">I'm on my way</button>
 
     <div class="chip-row" id="chipRow"></div>
 
@@ -708,7 +712,8 @@ const LS_KEYS = {
   alerts: 'commuter.alerts.v2',
   tomtomUsage: 'commuter.tomtom.usage.v1',
   parkingOverride: 'commuter.parking.override.v1',
-  returnBy: 'commuter.returnBy.v1'
+  returnBy: 'commuter.returnBy.v1',
+  trackView: 'commuter.trackView.v1'
 };
 let route = {
   fromName: '', toName: '',
@@ -2119,6 +2124,10 @@ async function renderReturnJourney(returnByHHMM){
     );
 
     if(gen !== returnGen) return;
+    provisionOnTrack(journey, 'ret');
+    // If the user has flip-persisted to the return view, re-render its plan now
+    // that the return journey exists (it's fetched async after first paint).
+    if(OT.view === 'ret' && !OT.enabled) renderPlannedView();
 
     const jDepart = new Date(journey.startDateTime);
     const jArrive = new Date(journey.arrivalDateTime);
@@ -2217,6 +2226,7 @@ async function runCalc(){
     const legs = journey.legs || [];
     journeyDetail = legs.map(l => l.instruction && l.instruction.summary ? l.instruction.summary : (l.mode ? l.mode.name : '')).filter(Boolean).join(' → ');
     journeyLegs = legs;
+    if(journey) provisionOnTrack(journey, 'out');
   }catch(e){
     live = false;
     journeyDurationMin = 55;
@@ -2315,6 +2325,185 @@ document.getElementById('calcBtn').addEventListener('click', () => {
 renderChips();
 runCalc();
 
+/* ================= Live "On the way" (outgoing ⇄ return via flip pill) =================
+   Detects which station on the planned route you're at (via geofencing), shows a
+   live arrive-by ETA computed from that sensed station, and auto-reverts to the
+   normal plan on arrival, expiry, or going off-path. No per-station network calls
+   during the trip -- the whole line's stops + per-stop times come from the one
+   journey fetch. Manual arm only; flip pill toggles direction. */
+const OT = { enabled:false, view:'out', onTrack:false, stops:[], destLat:null, destLon:null, lastIdx:-1, timer:null, offPathHits:0, outJourney:null, retJourney:null, baseDepartMs:null, baseArriveMs:null };
+const OT_FENCE_M = 350;
+const OT_EXPIRY_MIN = 15;
+const OT_FALLBACK_EXPIRY_MS = 8*3600000;
+const otBtn = document.getElementById('onTrackBtn');
+const trackFlipBtn = document.getElementById('trackFlipBtn');
+const otCoordCache = new Map();
+
+async function otResolveCoord(id){
+  if(otCoordCache.has(id)) return otCoordCache.get(id);
+  try{
+    const d = await fetchJSON(`${TFL_BASE}/StopPoint/${encodeURIComponent(id)}`);
+    const c = { lat:d.lat, lon:d.lon };
+    otCoordCache.set(id, c);
+    return c;
+  }catch(e){ return null; }
+}
+// Build an ordered stop list for a journey (reversed for return). Coordinates are
+// resolved lazily/cached; live ETA uses the planned journey arrival for the active
+// direction, offset by how far along the stop list you've already travelled.
+function provisionOnTrack(journey, view){
+  if(!journey) return;
+  const stops = [];
+  (journey.legs || []).forEach(leg => {
+    ((leg.path && leg.path.stopPoints) || []).forEach(p => {
+      const key = p.id || p.naptanId || (p.name + ':' + (p.lat||0));
+      if(stops.some(s => s.key === key)) return;
+      stops.push({ key, name:p.name, id:p.id || p.naptanId, lat:p.lat||null, lon:p.lon||null });
+    });
+  });
+  if(view === 'ret') stops.reverse();
+  OT.stops = stops;
+  OT.destLat = view === 'ret' ? route.fromLat : route.toLat;
+  OT.destLon = view === 'ret' ? route.fromLon : route.toLon;
+  OT.baseDepartMs = journey.startDateTime ? new Date(journey.startDateTime).getTime() : Date.now();
+  OT.baseArriveMs = journey.arrivalDateTime ? new Date(journey.arrivalDateTime).getTime() : null;
+  if(view === 'ret') OT.retJourney = journey; else OT.outJourney = journey;
+  OT.lastIdx = -1; OT.onTrack = false;
+  stops.forEach(s => {
+    if(s.lat != null && s.lon != null) return;
+    if(!s.id) return;
+    otResolveCoord(s.id).then(c => { if(c){ s.lat = c.lat; s.lon = c.lon; } });
+  });
+}
+function otStartName(){ return OT.view === 'ret' ? route.toName : route.fromName; }
+function otEndName(){ return OT.view === 'ret' ? route.fromName : route.toName; }
+function setFlip(){
+  if(!trackFlipBtn) return;
+  const ret = OT.view === 'ret';
+  trackFlipBtn.textContent = ret ? '⤾ Outbound' : '⤾ Return';
+  trackFlipBtn.classList.toggle('active', ret);
+}
+function setOtLive(active){
+  if(!otBtn) return;
+  otBtn.textContent = active ? "On my way · LIVE" : "I'm on my way";
+  otBtn.style.borderColor = active ? 'var(--ok)' : 'var(--amber-dim)';
+  otBtn.style.color = active ? 'var(--ok)' : 'var(--amber)';
+}
+function setHeroLabel(text){ const l=document.getElementById('heroLabel'); if(l) l.textContent=text; }
+// Show the planned time for the active direction (when not live-tracking yet):
+// outbound -> the leave-home time; return -> the get-back arrival time.
+function renderPlannedView(){
+  if(OT.enabled) return; // live view handles its own flaps
+  const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
+  if(!j){ if(OT.view === 'ret'){ renderFlaps('----', true); setHeroLabel('Plan return'); return; } runCalc(); return; }
+  if(OT.view === 'ret'){
+    const arr = new Date(j.arrivalDateTime);
+    setHeroLabel('Getting back by');
+    renderFlaps(fmtHM(arr), true);
+    // Arrival flap has no "leave now" meaning; drop the outbound status pill.
+    const wrap = document.getElementById('statusPillWrap'); if(wrap) wrap.innerHTML = '';
+    const sub = document.getElementById('resultSub');
+    if(sub) sub.innerHTML = `Return plan · home by <b>${fmtHM(arr)}</b>. Hit "I'm on my way" to track it.`;
+  } else {
+    runCalc(); // recalculates the outbound leave-home flaps
+  }
+}
+function syncHeroHeader(){
+  if(!OT.enabled){ setHeroLabel(OT.view === 'ret' ? 'Plan return' : 'Leave home by'); return; }
+  setHeroLabel(OT.view === 'ret' ? 'Getting back by' : 'Arrive by');
+}
+// Arrive-by time for the given sensed stop index: the planned journey arrival
+// shifted back by the fraction of the route still to go.
+function estimateEtaFor(bi){
+  if(OT.baseDepartMs == null || OT.baseArriveMs == null) return null;
+  const total = OT.baseArriveMs - OT.baseDepartMs;
+  const frac = OT.stops.length ? Math.min(1, (bi + 1) / OT.stops.length) : 0;
+  return OT.baseDepartMs + Math.round(total * (1 - frac));
+}
+function armOnTrack(){
+  if(!OT.stops.length){
+    if(otBtn){ otBtn.textContent = OT.view === 'ret' ? 'Set return time first' : 'Plan route first'; setTimeout(()=>setOtLive(false), 1600); }
+    return;
+  }
+  OT.enabled = true; OT.onTrack = false; OT.lastIdx = -1; OT.offPathHits = 0;
+  syncHeroHeader();
+  refreshOtExpiry();
+  setOtLive(true);
+  startWatchIfNeeded();
+  setOtHeroStatus('Watching for your station…', 'warn');
+}
+function disarmOnTrack(reason){
+  if(!OT.enabled) return;
+  OT.enabled = false; OT.onTrack = false; OT.lastIdx = -1;
+  if(OT.timer){ clearTimeout(OT.timer); OT.timer = null; }
+  setOtLive(false);
+  syncHeroHeader();
+  if(reason === 'arrived'){ resultSub.innerHTML = `Arrived at <b>${otEndName()}</b>. Back to your normal plan.`; }
+  runCalc();
+  stopWatchIfIdle();
+}
+function refreshOtExpiry(){
+  clearTimeout(OT.timer);
+  const base = OT.baseArriveMs ? OT.baseArriveMs + OT_EXPIRY_MIN*60000 : Date.now() + OT_FALLBACK_EXPIRY_MS;
+  OT.timer = setTimeout(() => disarmOnTrack('expired'), Math.max(1000, base - Date.now()));
+}
+function setOtHeroStatus(text, cls){
+  const wrap = document.getElementById('statusPillWrap');
+  if(!wrap) return;
+  let pill;
+  if(cls === 'live') pill = `<div class="status-pill ok"><span class="pdot"></span>${text}</div>`;
+  else if(cls === 'warn') pill = `<div class="status-pill warn"><span class="pdot"></span>${text}</div>`;
+  else pill = `<div class="status-pill ok"><span class="pdot"></span>${text}</div>`;
+  wrap.innerHTML = pill;
+}
+function handleOnTrackPosition(lat, lng){
+  if(!OT.enabled) return;
+  refreshOtExpiry();
+  if(OT.destLat != null && OT.destLon != null){
+    if(haversine(lat, lng, OT.destLat, OT.destLon) <= OT_FENCE_M){ disarmOnTrack('arrived'); return; }
+  }
+  let best = null, bi = -1;
+  for(let i=0;i<OT.stops.length;i++){
+    const s = OT.stops[i];
+    if(s.lat == null || s.lon == null) continue;
+    const d = haversine(lat, lng, s.lat, s.lon);
+    if(d <= OT_FENCE_M){ if(best === null || d < best){ best = d; bi = i; } }
+  }
+  if(bi < 0){
+    if(OT.onTrack){ OT.offPathHits++; if(OT.offPathHits > 2) disarmOnTrack('offpath'); }
+    return;
+  }
+  OT.offPathHits = 0;
+  if(bi > OT.lastIdx){ OT.onTrack = true; OT.lastIdx = bi; }
+  const eta = OT.baseArriveMs ? estimateEtaFor(bi) : null;
+  setHeroLabel(OT.view === 'ret' ? 'Getting back by' : 'Arrive by');
+  if(eta) renderFlaps(fmtHM(new Date(eta)), true);
+  const s = OT.stops[bi];
+  const label = OT.onTrack ? 'On track' : 'Now at';
+  setOtHeroStatus(`${label} ${s.name}${OT.onTrack ? ' · en route to ' + otEndName() : ''}`, OT.onTrack ? 'live' : 'warn');
+}
+if(trackFlipBtn) trackFlipBtn.addEventListener('click', () => {
+  OT.view = OT.view === 'ret' ? 'out' : 'ret';
+  saveString(LS_KEYS.trackView, OT.view);
+  const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
+  if(j) provisionOnTrack(j, OT.view);
+  else { OT.stops = []; OT.baseArriveMs = null; OT.baseDepartMs = null; }
+  setFlip();
+  syncHeroHeader();
+  renderPlannedView();
+  if(OT.enabled) disarmOnTrack('manual');
+});
+if(otBtn) otBtn.addEventListener('click', () => {
+  if(OT.enabled) disarmOnTrack('manual');
+  else armOnTrack();
+});
+(() => {
+  const saved = loadString(LS_KEYS.trackView);
+  if(saved === 'ret'){ OT.view = 'ret'; }
+})();
+setFlip();
+syncHeroHeader();
+
 /* ================= Arrival Alerts ================= */
 const GEOFENCE_RADIUS_M = 200;
 const GEOFENCE_RESET_M = 300;
@@ -2365,7 +2554,7 @@ function haversine(lat1, lon1, lat2, lon2){
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 function setStatus(key, text, cls){ const a=alerts[key]; a.statusEl.textContent=text; a.statusEl.className='alert-status'+(cls?' '+cls:''); }
-function anyActive(){ return alerts.origin.active || alerts.destination.active; }
+function anyActive(){ return alerts.origin.active || alerts.destination.active || OT.enabled; }
 function startWatchIfNeeded(){
   if(watchId !== null) return;
   if(!('geolocation' in navigator)){ ['origin','destination'].forEach(k=>{if(alerts[k].active) setStatus(k,'Location not supported here','error');}); return; }
@@ -2391,8 +2580,12 @@ function onPosition(pos){
     if(dist <= GEOFENCE_RADIUS_M) triggerArrival(key);
     else setStatus(key, `Watching, ${Math.round(dist)} m away`, 'watching');
   });
+  handleOnTrackPosition(latitude, longitude);
 }
-function onPositionError(){ ['origin','destination'].forEach(key=>{if(alerts[key].active) setStatus(key,'Location permission needed','error');}); }
+function onPositionError(){
+  ['origin','destination'].forEach(key=>{if(alerts[key].active) setStatus(key,'Location permission needed','error');});
+  if(OT.enabled) disarmOnTrack('location');
+}
 function playChime(){
   try{
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
