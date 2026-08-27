@@ -2861,20 +2861,26 @@ function applyUsedPark(idx){
 }
 // Check live availability/price of a saved spot via JustPark for the requested window.
 async function checkSpotAvailability(s, startMs, endMs){
+  const bStart = _bucketIso(new Date(startMs).toISOString());
+  const bEnd = _bucketIso(new Date(endMs).toISOString());
+  const ck = `check:${s.lat},${s.lng},${bStart},${bEnd},${(s.name||'').toLowerCase()}`;
+  if(_apiCache.has(ck)){ const hit=_cacheGet(ck); return hit; }
   const res = await fetch(JUSTPARK_GQL, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       query:`query($lat:Float!,$lng:Float!,$startDate:String!,$endDate:String!){search(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){results{title unavailable price(lat:$lat,lng:$lng,start_date:$startDate,end_date:$endDate){amount formatted}}}}`,
-      variables:{ lat: s.lat, lng: s.lng, startDate: new Date(startMs).toISOString(), endDate: new Date(endMs).toISOString() }
+      variables:{ lat: s.lat, lng: s.lng, startDate: bStart, endDate: bEnd }
     })
   });
   if(!res.ok) throw new Error('JustPark check failed');
   const data = await res.json();
-  const hits = (data?.data?.search?.results || []).filter(r => r.price && r.price.amount != null);
-  const match = hits.find(r => (r.title || '').toLowerCase() === (s.name || '').toLowerCase());
-  if(!match) return null;
-  return { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
+  const hits = data?.data?.search?.results || [];
+  const match = hits.find(r => (r.title || '').trim().toLowerCase() === (s.name || '').trim().toLowerCase());
+  if(!match){ _cacheSet(ck, null); return null; }
+  const out = { available: !match.unavailable, price: match.price ? match.price.formatted : '' };
+  _cacheSet(ck, out);
+  return out;
 }
 function renderPrevParking(){
   try {
@@ -2946,7 +2952,7 @@ function renderPrevParking(){
           const btn=row.querySelector('.parking-use-btn'); if(btn){ btn.disabled=true; btn.style.opacity='0.45'; btn.style.cursor='not-allowed'; btn.title='Not available for this time'; }
         }
       }
-    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability check failed'; });
+    }).catch(() => { const t = document.getElementById(`prev-avail-${i}`); if(t) t.textContent = 'Availability unknown — tap to check on JustPark'; });
   });
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
