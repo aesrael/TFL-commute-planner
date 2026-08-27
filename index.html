@@ -2839,12 +2839,13 @@ function getUsedParking(){
 function saveUsedParking(list){
   saveJson(LS_KEYS.usedParking, list.slice(0, 12));
 }
-function recordUsedParking(name, lat, lng, walkMin){
+function recordUsedParking(name, lat, lng, walkMin, listingId){
   if(!name || lat == null || lng == null) return;
   const station = (route.fromName || '').trim();
   const norm = v => String(v||'').trim().toLowerCase();
   const list = getUsedParking().filter(s => !(norm(s.name)===norm(name) && s.lat===lat && s.lng===lng));
-  list.unshift({ name, lat, lng, walk: walkMin, station, usedAt: Date.now() });
+  listingId = listingId || '';
+  list.unshift({ name, lat, lng, walk: walkMin, station, listingId, usedAt: Date.now() });
   saveUsedParking(list);
 }
 function applyUsedPark(idx){
@@ -2862,7 +2863,7 @@ function applyUsedPark(idx){
 async function checkSpotAvailability(s, startMs, endMs){
   const bStart = _bucketIso(new Date(startMs).toISOString());
   const bEnd = _bucketIso(new Date(endMs).toISOString());
-  const ck = `check:${s.lat},${s.lng},${bStart},${bEnd},${(s.name||'').toLowerCase()}`;
+  const ck = `check:${s.listingId||''}:${s.lat},${s.lng},${bStart},${bEnd}`;
   if(_apiCache.has(ck)){ const hit=_cacheGet(ck); return hit; }
   const res = await fetch(JUSTPARK_GQL, {
     method:'POST',
@@ -2875,16 +2876,22 @@ async function checkSpotAvailability(s, startMs, endMs){
   if(!res.ok) throw new Error('JustPark check failed');
   const data = await res.json();
   const hits = data?.data?.search?.results || [];
-  let match = null, bestDist = Infinity;
-  for(const r of hits){
-    if(!r.coordinates || r.coordinates.lat == null || r.coordinates.lng == null) continue;
-    const dLat = (r.coordinates.lat - s.lat) * Math.PI/180;
-    const dLng = (r.coordinates.lng - s.lng) * Math.PI/180;
-    const a = Math.sin(dLat/2)**2 + Math.cos(s.lat*Math.PI/180)*Math.cos(r.coordinates.lat*Math.PI/180)*Math.sin(dLng/2)**2;
-    const dist = 3959 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    if(dist < bestDist){ bestDist = dist; match = r; }
+  let match = null;
+  if(s.listingId){
+    match = hits.find(r => String(r.listing?.id) === String(s.listingId) || String(r.id) === String(s.listingId));
   }
-  if(!match || bestDist > 0.12){ _cacheSet(ck, null); return null; }
+  if(!match){
+    let bestDist = Infinity;
+    for(const r of hits){
+      if(!r.coordinates || r.coordinates.lat == null || r.coordinates.lng == null) continue;
+      const dLat = (r.coordinates.lat - s.lat) * Math.PI/180;
+      const dLng = (r.coordinates.lng - s.lng) * Math.PI/180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(s.lat*Math.PI/180)*Math.cos(r.coordinates.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+      const dist = 3959 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      if(dist < bestDist){ bestDist = dist; match = r; }
+    }
+    if(!match || bestDist > 0.12){ _cacheSet(ck, null); return null; }
+  }
   const out = { available: !match.unavailable && match.price && match.price.amount != null, price: match.price ? match.price.formatted : '' };
   _cacheSet(ck, out);
   return out;
@@ -3153,7 +3160,7 @@ function showParkingSearch(){
         const arriving = fmtJPDate(new Date(startMs));
         const leaving = fmtJPDate(new Date(endMs));
         const jpUrl = `https://www.justpark.com/search?coords=${r.coordinates.lat},${r.coordinates.lng}&q=${encodeURIComponent(r.title||route.fromName||'parking')}&arriving=${arriving}&leaving=${leaving}&from=${arriving}&to=${leaving}&start_date=${arriving}&end_date=${leaving}`;
-        return `<div class="parking-result${recommended ? ' recommended' : ''}" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}">
+        return `<div class="parking-result${recommended ? ' recommended' : ''}" data-name="${(r.title||'').replace(/"/g,'&quot;')}" data-lat="${r.coordinates.lat}" data-lng="${r.coordinates.lng}" data-walk="${walkMin}" data-url="${jpUrl}" data-listing-id="${r.listing?.id || ''}" data-search-id="${r.id || ''}">
           <div style="min-width:0;">
             <div class="parking-result-name">${r.title || 'Parking'}${recommended ? '<span class="parking-rec-badge">Recommended</span>' : ''}</div>
             ${addr ? `<div class="parking-result-addr">${addr}</div>` : ''}
@@ -3185,6 +3192,7 @@ function showParkingSearch(){
           const rLat = parseFloat(el.dataset.lat);
           const rLng = parseFloat(el.dataset.lng);
           const walkMin = parseInt(el.dataset.walk, 10);
+          const listingId = el.dataset.listingId || el.dataset.searchId || '';
           parkingSpotNameInput.value = name;
           route.parkingLat = rLat;
           route.parkingLon = rLng;
@@ -3192,7 +3200,7 @@ function showParkingSearch(){
             state.parkingWalkAutoMin = walkMin;
             state.parkingWalkLong = walkMin > 20;
           }
-          recordUsedParking(name, rLat, rLng, walkMin);
+          recordUsedParking(name, rLat, rLng, walkMin, listingId);
           syncParkingUI();
           updateParkingLabels();
           persistParking();
