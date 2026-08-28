@@ -2495,14 +2495,17 @@ function renderPlannedView(){
   if(OT.enabled) return; // live view handles its own flaps
   const j = OT.view === 'ret' ? OT.retJourney : OT.outJourney;
   if(!j){ if(OT.view === 'ret'){ renderFlaps('----', true); setHeroLabel('Plan return'); return; } renderCached(); return; }
-if(OT.view === 'ret'){
-    const arr = new Date(j.arrivalDateTime);
+  if(OT.view === 'ret'){
+    // Home arrival = train arrival + walk + drive, not just the train
+    const homeArr = lastRetPlan ? lastRetPlan.arriveHomeDate : new Date(j.arrivalDateTime);
+    // Fallback: if lastRetPlan not yet ready, add estimated walk+drive
+    const arrForFlap = lastRetPlan ? homeArr : new Date(new Date(j.arrivalDateTime).getTime() + ((state.parkingWalkAutoMin ?? state.walkBuffer ?? 0) + (state.driveTimeAutoMin ?? state.driveTime ?? 0) + (state.trafficBuffer ?? 0)) * 60000);
     setHeroLabel('Getting back by');
-    renderFlaps(fmtHM(arr), true);
+    renderFlaps(fmtHM(arrForFlap), true);
     const wrap = document.getElementById('statusPillWrap'); if(wrap) wrap.innerHTML = '';
     const sub = document.getElementById('resultSub');
-    if(sub) sub.innerHTML = `Return plan · home by <b>${fmtHM(arr)}</b>. Hit "I'm on my way" to track it.`;
-    if(lastRetPlan) renderRetPlan(); // Full breakdown shows the return journey
+    if(sub) sub.innerHTML = `Return plan · home by <b>${fmtHM(arrForFlap)}</b>. Hit "I'm on my way" to track it.`;
+    if(lastRetPlan) renderRetPlan();
   } else {
     renderCached();
   }
