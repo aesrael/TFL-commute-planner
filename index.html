@@ -2266,7 +2266,7 @@ function renderPlan(){
 function renderRetPlan(){
   if(!lastRetPlan) return;
   const { jDepart, jArrive, jDuration, retFromName, retToName, walkBuf, driveT, trafficBuf,
-    walkToCarDate, arriveHomeDate, legs, detail } = lastRetPlan;
+    walkToCarDate, leaveDestDate, arriveHomeDate, legs, detail } = lastRetPlan;
   const retTimeline = [
     {icon:'train', time:fmtHM(jDepart), label:retFromName},
     {icon:'train', time:fmtHM(jArrive), label:retToName},
@@ -2284,13 +2284,15 @@ function renderRetPlan(){
     });
     document.getElementById('timelinePanel').style.display = 'block';
   }
+  const retTotalD2D = Math.round((arriveHomeDate.getTime() - leaveDestDate.getTime()) / 60000);
   const retLegsHtml = legs.map((leg, idx) => renderLegRow(leg, idx, 'ret-leg-arr')).join('');
   manifestBody.innerHTML = `
     <div class="m-row"><div class="m-time">${fmtHM(jDepart)}</div><div class="m-text">Train departs ${retFromName}<span class="m-tag live">Live</span><span class="m-note">${detail}</span></div></div>
     ${retLegsHtml}
-    <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Journey: ${jDuration} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(jArrive)}</div><div class="m-text">Arrive ${retToName}<span class="m-note">Transit time: ${jDuration} min</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(walkToCarDate)}</div><div class="m-text">Walk to car<span class="m-note">${walkBuf} min to parking</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(arriveHomeDate)}</div><div class="m-text">Home<span class="m-note">Drive ${driveT} min + ${trafficBuf} min buffer</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(leaveDestDate)}</div><div class="m-text"><b>Total door-to-door: ${retTotalD2D} min</b><span class="m-note">Transit ${jDuration} min + walk/drive ${retTotalD2D - jDuration} min</span></div></div>
   `;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
