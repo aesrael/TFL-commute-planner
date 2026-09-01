@@ -396,6 +396,13 @@
   .parking-result-price.cheap{color:var(--ok);}
   .parking-result-price.mid{color:var(--warn);}
   .parking-result-price.expensive{color:var(--alert);}
+  .parking-map-btn{
+    display:inline-flex; align-items:center; gap:4px; vertical-align:middle;
+    background:transparent; border:1px solid var(--hairline); border-radius:6px;
+    padding:5px 9px; font-size:10px; font-weight:600; color:var(--text-dim);
+    text-transform:uppercase; letter-spacing:.04em; cursor:pointer; text-decoration:none;
+  }
+  .parking-map-btn:hover{border-color:var(--amber-dim); color:var(--amber);}
   .parking-result-walk{font-size:10px; color:var(--text-faint); margin-top:2px;}
   .parking-result-loading{font-size:12px; color:var(--text-faint); padding:20px; text-align:center;}
   #trackFlipBtn.active{color:var(--amber); border-color:var(--amber-dim); background:rgba(255,176,32,0.08);}
@@ -1183,12 +1190,18 @@ async function geocodeParkingSpot(query){
     return null;
   }
 }
-// OSRM foot `duration` is unreliable on the public server (can report ~22 km/h walking speeds),
-// so we derive walk time from the street distance at a realistic walking pace (~5 km/h) instead.
+// OSRM foot on the public server is driving-annotated and sometimes takes absurd detours, which
+// makes its `duration` unusable (car speed) and its `distance` inflated for those routes. Use the
+// street distance at a realistic walking pace (~5 km/h); if it exceeds ~2.5x the straight-line
+// estimate it's a bad detour, so fall back to the straight-line lower bound. Verified against
+// Google Maps walking times in Upminster (Southview 15 min, Dunster ~9 min).
 const WALK_SPEED_MS = 1.35;
-function walkMinutesFromRoute(best){
+function walkMinutesFromRoute(best, straightLineMinutes){
   if(!best || !best.distance) return null;
-  return Math.max(1, Math.round(best.distance / WALK_SPEED_MS / 60));
+  const distMin = best.distance / WALK_SPEED_MS / 60;
+  if(!straightLineMinutes || straightLineMinutes <= 0) return Math.max(1, Math.round(distMin));
+  if(distMin / straightLineMinutes > 2.5) return straightLineMinutes;
+  return Math.max(1, Math.round(distMin));
 }
 async function updateParkingWalkEstimate(){
   if(route.parkingLat == null || route.parkingLon == null || route.fromLat == null || route.fromLon == null){
@@ -1202,7 +1215,7 @@ async function updateParkingWalkEstimate(){
     const url = `https://router.project-osrm.org/route/v1/foot/${route.parkingLon},${route.parkingLat};${route.fromLon},${route.fromLat}?overview=false&steps=false`;
     const data = await fetchJSONPlain(url);
     const best = data.routes && data.routes[0];
-    const walkMin = walkMinutesFromRoute(best);
+    const walkMin = walkMinutesFromRoute(best, estimateWalkMinutes(route.fromLat, route.fromLon, route.parkingLat, route.parkingLon));
     if(walkMin == null) throw new Error('No route');
     state.parkingWalkAutoMin = walkMin;
     state.parkingWalkLong = walkMin > 20;
@@ -2029,9 +2042,14 @@ async function activateAlternative(alt, altIdx){
     <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk, ${walkBuffer} min</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
+  const altTotalD2D = Math.round((alt.journeyArriveDate.getTime() - freshLeaveHome.getTime()) / 60000);
+  const altD2DRow = hasParking ? `
+    <div class="m-row"><div class="m-time">${fmtHM(freshLeaveHome)}</div><div class="m-text"><b>Total door-to-door: ${altTotalD2D} min</b><span class="m-note">Transit ${alt.journeyDurationMin} min + drive/park/walk ${altTotalD2D - alt.journeyDurationMin} min</span></div></div>
+  ` : '';
   manifestBody.innerHTML = `${manifestRows}
     <div class="m-row"><div class="m-time">${fmtHM(alt.journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag live">Live</span><span class="m-note">${alt.journeyDetail}</span></div></div>
-    <div class="m-row"><div class="m-time">${fmtHM(alt.journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${alt.journeyDurationMin} min</span></div></div>
+    <div class="m-row"><div class="m-time">${fmtHM(alt.journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Transit time: ${alt.journeyDurationMin} min</span></div></div>
+    ${altD2DRow}
   `;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
@@ -2227,12 +2245,16 @@ function renderPlan(){
     <div class="m-row"><div class="m-time">${fmtHM(parkArriveDate)}</div><div class="m-text">Arrive &amp; park<span class="m-note">${state.parkingWalkAutoMin != null ? 'Auto-estimated from parking spot' : 'Manual estimate'} · Park + ${PARKING_BUFFER_MIN} min grace · Walk to platform, ${walkBuffer} min${state.parkingWalkLong ? ' <span style=\"color:var(--warn)\">(OSRM may be unreliable for long walks)</span>' : ''}</span></div></div>
     <div class="m-row"><div class="m-time">${fmtHM(platformArriveDate)}</div><div class="m-text">At the platform<span class="m-note">Buffer before departure</span></div></div>
   ` : '';
+  const totalD2D = Math.round((journeyArriveDate.getTime() - leaveHomeDate.getTime()) / 60000);
+  const d2dRow = hasParking ? `
+    <div class="m-row"><div class="m-time">${fmtHM(leaveHomeDate)}</div><div class="m-text"><b>Total door-to-door: ${totalD2D} min</b><span class="m-note">Transit ${journeyDurationMin} min + drive/park/walk ${totalD2D - journeyDurationMin} min</span></div></div>
+  ` : '';
   const legsHtml = (live && journeyLegs.length)
     ? journeyLegs.map((leg, idx) => renderLegRow(leg, idx)).join('') +
-      `<div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`
+      `<div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Transit time: ${journeyDurationMin} min</span></div></div>`
     : `<div class="m-row"><div class="m-time">${fmtHM(journeyDepartDate)}</div><div class="m-text">Train departs ${route.fromName}<span class="m-tag ${live?'live':'est'}">${live?'Live':'Estimate'}</span><span class="m-note">${journeyDetail}</span></div></div>
-       <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Journey time: ${journeyDurationMin} min</span></div></div>`;
-  manifestBody.innerHTML = `${manifestRows}${legsHtml}`;
+       <div class="m-row"><div class="m-time">${fmtHM(journeyArriveDate)}</div><div class="m-text">Arrive ${route.toName}<span class="m-note">Transit time: ${journeyDurationMin} min</span></div></div>`;
+  manifestBody.innerHTML = `${manifestRows}${legsHtml}${d2dRow}`;
   manifestPanel.style.display = 'block';
   manifestPanel.classList.add('open');
   document.getElementById('manifestHeader').querySelector('h2').textContent = 'Full breakdown';
@@ -2941,6 +2963,7 @@ function renderPrevParking(){
         <div style="font-size:11px; color:var(--text-dim); margin-top:4px;" id="prev-avail-${i}">Checking availability…</div>
       </div>
       <div class="parking-result-meta">
+        ${route.fromLat != null && route.fromLon != null ? `<div style="display:flex; gap:6px; align-items:center; justify-content:flex-end;"><a class="parking-map-btn" href="https://www.google.com/maps/dir/?api=1&origin=${s.lat},${s.lng}&destination=${route.fromLat},${route.fromLon}&travelmode=walking" target="_blank" rel="noopener" title="Walking directions to the station in Google Maps">Map</a></div>` : ''}
         <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
       </div>
     </div>`;
@@ -2993,7 +3016,7 @@ function renderPrevParking(){
 
   parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
     el.addEventListener('click', (e) => {
-      if(e.target.closest('.parking-use-btn')) return;
+      if(e.target.closest('.parking-use-btn') || e.target.closest('.parking-map-btn')) return;
       const url = el.dataset.url;
       if(url) window.open(url, '_blank', 'noreferrer,noopener');
     });
@@ -3074,7 +3097,7 @@ async function realWalkMinutes(lat1, lng1, lat2, lng2){
   const url = `https://router.project-osrm.org/route/v1/foot/${lng1},${lat1};${lng2},${lat2}?overview=false&steps=false`;
   const data = await fetchJSONPlain(url);
   const best = data.routes && data.routes[0];
-  const walkMin = walkMinutesFromRoute(best);
+  const walkMin = walkMinutesFromRoute(best, estimateWalkMinutes(lat1, lng1, lat2, lng2));
   if(walkMin == null) throw new Error('No route');
   return walkMin;
 }
@@ -3147,9 +3170,9 @@ function showParkingSearch(){
         parkingSearchResults.innerHTML = '<div class="parking-result-loading">No parking options within 20 mins walk found</div>';
         return;
       }
-      // Real street-walk for the ~6 most promising candidates (cheap to call, much closer to the
-      // OSRM figure the journey will actually use), then re-rank everything on the balanced score.
-      const candidates = valid.slice().sort((a,b) => a._walkMin - b._walkMin || (a._amount - b._amount)).slice(0, 6);
+      // Real street-walk for the ~12 most promising candidates (cheap to call, much closer to the
+      // actual street route than a straight-line guess), then re-rank everything on the balanced score.
+      const candidates = valid.slice().sort((a,b) => a._walkMin - b._walkMin || (a._amount - b._amount)).slice(0, 12);
       const realWalks = candidates.map(async r => {
         try{ r._walkMin = await realWalkMinutes(lat, lng, r.coordinates.lat, r.coordinates.lng); }
         catch(e){}
@@ -3191,14 +3214,17 @@ function showParkingSearch(){
           </div>
           <div class="parking-result-meta">
             ${price ? `<div class="parking-result-price ${priceClass}">${price}</div>` : ''}
-            <button class="parking-use-btn" type="button" style="margin-top:4px; background:var(--amber); color:#000; border:none; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
+            <div style="display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:4px;">
+              <a class="parking-map-btn" href="https://www.google.com/maps/dir/?api=1&origin=${r.coordinates.lat},${r.coordinates.lng}&destination=${lat},${lng}&travelmode=walking" target="_blank" rel="noopener" title="Walking directions to the station in Google Maps">Map</a>
+              <button class="parking-use-btn" type="button" style="background:var(--amber); color:#000; border:none; border-radius:6px; padding:5px 12px; font-size:10px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.04em;">Use</button>
+            </div>
           </div>
         </div>`;
       }).join('');
 
       parkingSearchResults.querySelectorAll('.parking-result').forEach(el => {
         el.addEventListener('click', (e) => {
-          if(e.target.closest('.parking-use-btn')) return;
+          if(e.target.closest('.parking-use-btn') || e.target.closest('.parking-map-btn')) return;
           const url = el.dataset.url;
           if(url) window.open(url, '_blank', 'noreferrer,noopener');
         });
