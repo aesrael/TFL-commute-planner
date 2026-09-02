@@ -2557,7 +2557,12 @@ function armOnTrack(){
   setOtLive(true);
   persistOnTrack();
   startWatchIfNeeded();
-  setOtHeroStatus('Watching for your station…', 'warn');
+  if(OT.baseArriveMs){
+    renderFlaps(fmtHM(new Date(OT.baseArriveMs)), false);
+    setOtHeroStatus(`On your way — ETA ${fmtHM(new Date(OT.baseArriveMs))} to ${otEndName()}`, 'live');
+  } else {
+    setOtHeroStatus('Watching for your station…', 'warn');
+  }
 }
 function disarmOnTrack(reason){
   if(!OT.enabled) return;
@@ -2613,9 +2618,8 @@ function handleOnTrackPosition(lat, lng){
   }
   OT.offPathHits = 0;
   if(bi > OT.lastIdx){ OT.onTrack = true; OT.lastIdx = bi; }
-  const eta = OT.baseArriveMs ? estimateEtaFor(bi) : null;
+  if(OT.baseArriveMs) renderFlaps(fmtHM(new Date(OT.baseArriveMs)), false);
   setHeroLabel(OT.view === 'ret' ? 'Getting back by' : 'Arrive by');
-  if(eta) renderFlaps(fmtHM(new Date(eta)), true);
   const s = OT.stops[bi];
   const label = OT.onTrack ? 'On track' : 'Now at';
   setOtHeroStatus(`${label} ${s.name}${OT.onTrack ? ' · en route to ' + otEndName() : ''}`, OT.onTrack ? 'live' : 'warn');
